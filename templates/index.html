@@ -356,6 +356,8 @@
     let smoothLeftPct = 0;
     let smoothRightPct = 0;
     let sttEnabled = true;
+    let apiOnline = false;
+    let wsOnline = false;
 
     function rmsToPercent(rms) {
         const v = Math.max(1e-9, Number(rms) || 0);
@@ -371,13 +373,37 @@
     }
 
     function setApiState(ok, msg) {
+        apiOnline = !!ok;
         el.apiDot.className = ok ? "dot ok" : "dot err";
         el.apiStatus.textContent = "API: " + msg;
     }
 
     function setWsState(ok, msg) {
+        wsOnline = !!ok;
         el.wsDot.className = ok ? "dot ok" : "dot err";
         el.wsStatus.textContent = "Socket: " + msg;
+    }
+
+    function updateSttStatusFromLiveness() {
+        if (!sttEnabled) {
+            setSttStatus("disabled");
+            return;
+        }
+        if (!apiOnline && !wsOnline) {
+            setSttStatus("offline");
+            return;
+        }
+        if (!lastSttUpdateMs) {
+            setSttStatus("waiting");
+            return;
+        }
+
+        const ageSec = Math.floor((Date.now() - lastSttUpdateMs) / 1000);
+        if (ageSec <= 1) {
+            setSttStatus("streaming");
+        } else {
+            setSttStatus("idle " + ageSec + "s");
+        }
     }
 
     function refreshSttToggleButton() {
@@ -565,7 +591,7 @@
         sttEnabled = !sttEnabled;
         refreshSttToggleButton();
         await sendConfigDebounced();
-        setSttStatus(sttEnabled ? "enabled" : "disabled");
+        updateSttStatusFromLiveness();
     });
 
     el.moreOptionsToggle.addEventListener("click", () => {
@@ -613,9 +639,18 @@
         await sendConfigDebounced();
     });
 
-    socket.on("connect", () => setWsState(true, "connected"));
-    socket.on("disconnect", () => setWsState(false, "disconnected"));
-    socket.on("connect_error", () => setWsState(false, "connection error"));
+    socket.on("connect", () => {
+        setWsState(true, "connected");
+        updateSttStatusFromLiveness();
+    });
+    socket.on("disconnect", () => {
+        setWsState(false, "disconnected");
+        updateSttStatusFromLiveness();
+    });
+    socket.on("connect_error", () => {
+        setWsState(false, "connection error");
+        updateSttStatusFromLiveness();
+    });
 
     socket.on("meter", (data) => {
         const rawLeft = rmsToPercent(data.left);
@@ -671,7 +706,7 @@
     socket.on("transcription", (data) => {
         lastSttUpdateMs = Date.now();
         renderTranscript(data && data.text);
-        setSttStatus("streaming");
+        updateSttStatusFromLiveness();
     });
 
     function drawSpectrum(inputArr, outputArr) {
@@ -721,40 +756,45 @@
     setInterval(async () => {
         try {
             const res = await fetch("/api/transcription/latest");
-            if (!res.ok) return;
+            if (!res.ok) {
+                setApiState(false, "transcription poll failed");
+                updateSttStatusFromLiveness();
+                return;
+            }
             const payload = await res.json();
+            setApiState(true, "connected");
             if ((payload.seq || 0) > lastTranscriptSeq) {
                 lastTranscriptSeq = payload.seq || 0;
                 renderTranscript(payload.text || "");
                 lastSttUpdateMs = Date.now();
-                setSttStatus("seq " + lastTranscriptSeq);
+                updateSttStatusFromLiveness();
             }
         } catch (err) {
-            // Silent fallback polling error; socket path may still be active.
+            setApiState(false, "transcription poll failed");
+            updateSttStatusFromLiveness();
         }
     }, 600);
 
     setInterval(() => {
-        if (!lastSttUpdateMs) {
-            return;
-        }
-        const ageSec = Math.floor((Date.now() - lastSttUpdateMs) / 1000);
-        if (ageSec <= 1) {
-            setSttStatus("streaming");
-        } else {
-            setSttStatus("idle " + ageSec + "s");
-        }
+        updateSttStatusFromLiveness();
     }, 1000);
 
     // Keep UI controls synced to backend even if updates happen elsewhere.
     setInterval(async () => {
         try {
             const res = await fetch("/api/config");
-            if (!res.ok) return;
+            if (!res.ok) {
+                setApiState(false, "config sync failed");
+                updateSttStatusFromLiveness();
+                return;
+            }
             const cfg = await res.json();
             applyConfigToUI(cfg);
+            setApiState(true, "connected");
+            updateSttStatusFromLiveness();
         } catch (err) {
-            // Ignore transient sync errors.
+            setApiState(false, "config sync failed");
+            updateSttStatusFromLiveness();
         }
     }, 2500);
 
