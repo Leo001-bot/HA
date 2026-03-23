@@ -1,0 +1,16 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/*.log
+
+# Large model artifacts (keep repository lightweight)
+models/**/*.onnx
+models/**/*.tar
+models/**/*.tar.bz2
+models/**/*.zip
+models/**/*.pt
+models/**/*.ckpt
