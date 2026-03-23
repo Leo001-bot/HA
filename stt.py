@@ -20,15 +20,16 @@ class StreamingSTT:
         self._last_text = ""
         self._current_text = ""
         self._last_emit_time = 0.0
+        self._last_repeat_emit_time = 0.0
         self._silence_seconds = 0.0
-        self._last_final_text = ""
-        self._last_final_time = 0.0
+        self._segment_seconds = 0.0
 
         # Tunables for real-time behavior.
         self._silence_threshold = 0.008
         self._utterance_silence_seconds = 0.45
         self._partial_emit_interval = 0.08
-        self._duplicate_final_window_seconds = 3.0
+        self._partial_repeat_interval = 0.6
+        self._max_segment_seconds = 12.0
 
         self.recognizer = self._create_recognizer(
             model_path=model_path,
@@ -157,24 +158,16 @@ class StreamingSTT:
 
             final_text = str(self.recognizer.get_result(self.stream)).strip()
             if final_text:
-                normalized = " ".join(final_text.lower().split())
-                now = time.monotonic()
-                duplicate_recent = (
-                    normalized == self._last_final_text
-                    and (now - self._last_final_time) < self._duplicate_final_window_seconds
-                )
-                if not duplicate_recent:
-                    try:
-                        self.text_queue.put_nowait(final_text)
-                    except queue.Full:
-                        pass
-                    self._last_final_text = normalized
-                    self._last_final_time = now
+                try:
+                    self.text_queue.put_nowait(final_text)
+                except queue.Full:
+                    pass
 
             self.stream = self.recognizer.create_stream()
             self._current_text = ""
             self._last_text = ""
             self._silence_seconds = 0.0
+            self._segment_seconds = 0.0
 
         while self._running:
             try:
@@ -193,6 +186,7 @@ class StreamingSTT:
 
                 duration_s = float(samples.shape[0]) / float(self.sample_rate)
                 rms = float(np.sqrt(np.mean(samples * samples) + 1e-12))
+                self._segment_seconds += duration_s
 
                 self.stream.accept_waveform(self.sample_rate, samples)
 
@@ -211,17 +205,32 @@ class StreamingSTT:
 
                 # Emit partial updates at a controlled rate for low latency UI.
                 now = time.monotonic()
-                if self._current_text and self._current_text != self._last_text:
-                    if now - self._last_emit_time >= self._partial_emit_interval:
+                if self._current_text:
+                    text_changed = self._current_text != self._last_text
+                    emit_due = (now - self._last_emit_time) >= self._partial_emit_interval
+                    repeat_due = (now - self._last_repeat_emit_time) >= self._partial_repeat_interval
+                    if emit_due and (text_changed or repeat_due):
                         self._last_text = self._current_text
                         self._last_emit_time = now
+                        self._last_repeat_emit_time = now
                         try:
                             self.text_queue.put_nowait(self._current_text)
                         except queue.Full:
                             pass
 
-                # End-of-utterance: on sustained silence, reset stream automatically.
-                if self._silence_seconds >= self._utterance_silence_seconds:
+                endpoint_reached = False
+                if hasattr(self.recognizer, "is_endpoint"):
+                    try:
+                        endpoint_reached = bool(self.recognizer.is_endpoint(self.stream))
+                    except Exception:
+                        endpoint_reached = False
+
+                # End-of-utterance handling for continuous usage.
+                if (
+                    endpoint_reached
+                    or self._silence_seconds >= self._utterance_silence_seconds
+                    or self._segment_seconds >= self._max_segment_seconds
+                ):
                     emit_final_and_reset_stream()
             except queue.Empty:
                 continue

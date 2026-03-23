@@ -20,8 +20,11 @@ class Config:
             'aec_enabled': True,
             'aec_strength': 1.2,
             'aec_delay_blocks': 4,
+            'near_end_suppression_mode': False,
+            'near_end_suppression_strength': 0.6,
             'feedback_cancellation': True,
             'stt_enabled': True,
+            'stt_input_gain': 1.0,
         }
         self._pending = self._active.copy()
         self._needs_swap = False
@@ -79,7 +82,19 @@ class Config:
                 except (TypeError, ValueError):
                     value = self._active.get('aec_delay_blocks', 4)
                 value = max(1, min(16, value))
-            if key in ('noise_reduction', 'nr_cepstral_smoothing', 'nr_attack_release_split', 'nr_wind_mode', 'aec_enabled', 'stt_enabled'):
+            if key == 'near_end_suppression_strength':
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = self._active.get('near_end_suppression_strength', 0.6)
+                value = max(0.0, min(1.0, value))
+            if key == 'stt_input_gain':
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = self._active.get('stt_input_gain', 1.0)
+                value = max(0.5, min(8.0, value))
+            if key in ('noise_reduction', 'nr_cepstral_smoothing', 'nr_attack_release_split', 'nr_wind_mode', 'aec_enabled', 'near_end_suppression_mode', 'stt_enabled'):
                 value = bool(value)
 
             # Keep legacy key mirrored for existing UI/client code.

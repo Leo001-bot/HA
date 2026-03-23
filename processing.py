@@ -206,9 +206,10 @@ class Compressor:
 class FeedbackCanceller:
     """NLMS adaptive filter for feedback cancellation."""
 
-    def __init__(self, filter_length=128, mu=0.01):
+    def __init__(self, filter_length=128, mu=0.01, sample_rate=16000):
         self.filter_length = filter_length
         self.mu = mu
+        self.sample_rate = sample_rate
         self.weights = np.zeros(filter_length, dtype=np.float32)
         self.buffer = np.zeros(filter_length, dtype=np.float32)
         self.leak = 0.9997
@@ -256,7 +257,7 @@ class FeedbackCanceller:
             self.weights = self.leak * self.weights + step * error * self.buffer / power
         return error
 
-    def process_block(self, input_block, speaker_block, strength=1.0):
+    def process_block(self, input_block, speaker_block, strength=1.0, near_end_mode=False, near_end_strength=0.6):
         input_block = np.asarray(input_block, dtype=np.float32)
         speaker_block = np.asarray(speaker_block, dtype=np.float32)
         n = min(input_block.size, speaker_block.size)
@@ -264,6 +265,7 @@ class FeedbackCanceller:
             return input_block
 
         strength = float(np.clip(strength, 0.2, 3.0))
+        near_end_strength = float(np.clip(near_end_strength, 0.0, 1.0))
 
         aligned_ref = self._align_reference(input_block, speaker_block)
 
@@ -295,6 +297,23 @@ class FeedbackCanceller:
             # Attenuate only when signal resembles speaker leakage.
             att = np.clip((coherence - 0.35) * (1.0 + 0.6 * strength), 0.0, 0.85)
             out[:n] *= (1.0 - att)
+
+        # Optional near-end suppression mode (sidetone reduction for earphone tests).
+        if near_end_mode and near_end_strength > 0.0:
+            near_rms = float(np.sqrt(np.mean(out[:n] * out[:n])) + 1e-8)
+            if near_rms > 0.01:
+                spec = np.abs(np.fft.rfft(out[:n]))
+                freqs = np.fft.rfftfreq(n, d=1.0 / self.sample_rate)
+                speech_band = (freqs >= 250.0) & (freqs <= 3500.0)
+                if np.any(speech_band):
+                    speech_ratio = float(np.sum(spec[speech_band])) / (float(np.sum(spec)) + 1e-8)
+                else:
+                    speech_ratio = 0.0
+
+                # Trigger when dominant near-end speech is detected and not strongly echo-coherent.
+                if speech_ratio > 0.45 and coherence < 0.55:
+                    near_att = np.clip((speech_ratio - 0.40) * (0.6 + 0.9 * near_end_strength), 0.0, 0.80)
+                    out[:n] *= (1.0 - near_att)
 
         if n < input_block.size:
             out[n:] = input_block[n:]

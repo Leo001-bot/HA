@@ -126,9 +126,41 @@
             background: #5d71b6;
         }
 
+        .stt-toggle-btn {
+            min-width: 120px;
+            font-weight: 600;
+        }
+
+        .stt-toggle-btn.on {
+            background: #2f8d55;
+        }
+
+        .stt-toggle-btn.on:hover {
+            background: #38a364;
+        }
+
+        .stt-toggle-btn.off {
+            background: #a14545;
+        }
+
+        .stt-toggle-btn.off:hover {
+            background: #b85151;
+        }
+
         .hint {
             color: var(--muted);
             font-size: 0.92rem;
+        }
+
+        .more-options-panel {
+            display: none;
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .more-options-panel.open {
+            display: block;
         }
     </style>
 </head>
@@ -159,6 +191,18 @@
             <input type="range" id="nr-strength" min="0.3" max="3" step="0.1" value="1.4">
             <span id="nr-strength-val">1.4</span>
         </div>
+        <div class="row">
+            <label for="stt-gain">STT Input Gain</label>
+            <input type="range" id="stt-gain" min="0.5" max="8" step="0.1" value="1.0">
+            <span id="stt-gain-val">1.0x</span>
+        </div>
+        <div class="row">
+            <label for="stt-toggle">STT</label>
+            <button id="stt-toggle" class="stt-toggle-btn on" type="button">STT ON</button>
+            <span class="hint">Live speech transcript</span>
+        </div>
+        <button id="more-options-toggle" type="button">More options</button>
+        <div id="more-options-panel" class="more-options-panel">
         <div class="row">
             <label for="nr-band-low">NR Band Low (Hz)</label>
             <input type="range" id="nr-band-low" min="0" max="4000" step="50" value="120">
@@ -210,9 +254,16 @@
             <span id="aec-delay-val">4</span>
         </div>
         <div class="row">
-            <label for="stt">STT Enabled</label>
-            <input type="checkbox" id="stt" checked>
-            <span class="hint">Live speech transcript</span>
+            <label for="near-end-mode">Near-end Suppression</label>
+            <input type="checkbox" id="near-end-mode">
+            <span class="hint">Reduce own-voice sidetone (optional)</span>
+        </div>
+        <div class="row">
+            <label for="near-end-strength">Near-end Strength</label>
+            <input type="range" id="near-end-strength" min="0" max="1" step="0.05" value="0.6">
+            <span id="near-end-strength-val">0.60</span>
+        </div>
+        <button id="wireless-preset" type="button">Apply Wireless Earphone Preset</button>
         </div>
         <button id="reset" type="button">Reset to Default</button>
     </div>
@@ -272,7 +323,15 @@
         aecStrengthVal: document.getElementById("aec-strength-val"),
         aecDelay: document.getElementById("aec-delay"),
         aecDelayVal: document.getElementById("aec-delay-val"),
-        stt: document.getElementById("stt"),
+        nearEndMode: document.getElementById("near-end-mode"),
+        nearEndStrength: document.getElementById("near-end-strength"),
+        nearEndStrengthVal: document.getElementById("near-end-strength-val"),
+        sttGain: document.getElementById("stt-gain"),
+        sttGainVal: document.getElementById("stt-gain-val"),
+        sttToggle: document.getElementById("stt-toggle"),
+        moreOptionsToggle: document.getElementById("more-options-toggle"),
+        moreOptionsPanel: document.getElementById("more-options-panel"),
+        wirelessPreset: document.getElementById("wireless-preset"),
         reset: document.getElementById("reset"),
         meterLeft: document.getElementById("meter-left"),
         meterRight: document.getElementById("meter-right"),
@@ -294,6 +353,18 @@
     const specCtx = el.specCanvas.getContext("2d");
 
     let lastSttUpdateMs = 0;
+    let smoothLeftPct = 0;
+    let smoothRightPct = 0;
+    let sttEnabled = true;
+
+    function rmsToPercent(rms) {
+        const v = Math.max(1e-9, Number(rms) || 0);
+        const db = 20 * Math.log10(v);
+        const floorDb = -65;
+        const ceilDb = -6;
+        const norm = (db - floorDb) / (ceilDb - floorDb);
+        return Math.max(0, Math.min(100, norm * 100));
+    }
 
     function setSttStatus(text) {
         el.sttStatus.textContent = "STT: " + text;
@@ -307,6 +378,13 @@
     function setWsState(ok, msg) {
         el.wsDot.className = ok ? "dot ok" : "dot err";
         el.wsStatus.textContent = "Socket: " + msg;
+    }
+
+    function refreshSttToggleButton() {
+        const on = !!sttEnabled;
+        el.sttToggle.textContent = on ? "STT ON" : "STT OFF";
+        el.sttToggle.classList.toggle("on", on);
+        el.sttToggle.classList.toggle("off", !on);
     }
 
     function readConfigFromUI() {
@@ -324,7 +402,10 @@
             aec_enabled: el.aecEnabled.checked,
             aec_strength: Number(el.aecStrength.value),
             aec_delay_blocks: Number(el.aecDelay.value),
-            stt_enabled: el.stt.checked
+            near_end_suppression_mode: el.nearEndMode.checked,
+            near_end_suppression_strength: Number(el.nearEndStrength.value),
+            stt_input_gain: Number(el.sttGain.value),
+            stt_enabled: sttEnabled
         };
     }
 
@@ -370,7 +451,19 @@
             el.aecDelay.value = cfg.aec_delay_blocks;
             el.aecDelayVal.textContent = String(cfg.aec_delay_blocks);
         }
-        if (typeof cfg.stt_enabled === "boolean") el.stt.checked = cfg.stt_enabled;
+        if (typeof cfg.near_end_suppression_mode === "boolean") {
+            el.nearEndMode.checked = cfg.near_end_suppression_mode;
+        }
+        if (typeof cfg.near_end_suppression_strength === "number") {
+            el.nearEndStrength.value = cfg.near_end_suppression_strength;
+            el.nearEndStrengthVal.textContent = cfg.near_end_suppression_strength.toFixed(2);
+        }
+        if (typeof cfg.stt_input_gain === "number") {
+            el.sttGain.value = cfg.stt_input_gain;
+            el.sttGainVal.textContent = cfg.stt_input_gain.toFixed(1) + "x";
+        }
+        if (typeof cfg.stt_enabled === "boolean") sttEnabled = cfg.stt_enabled;
+        refreshSttToggleButton();
     }
 
     async function loadConfig() {
@@ -459,7 +552,43 @@
         el.aecDelayVal.textContent = String(Math.round(Number(el.aecDelay.value)));
         sendConfigDebounced();
     });
-    el.stt.addEventListener("change", sendConfigDebounced);
+    el.nearEndMode.addEventListener("change", sendConfigDebounced);
+    el.nearEndStrength.addEventListener("input", () => {
+        el.nearEndStrengthVal.textContent = Number(el.nearEndStrength.value).toFixed(2);
+        sendConfigDebounced();
+    });
+    el.sttGain.addEventListener("input", () => {
+        el.sttGainVal.textContent = Number(el.sttGain.value).toFixed(1) + "x";
+        sendConfigDebounced();
+    });
+    el.sttToggle.addEventListener("click", async () => {
+        sttEnabled = !sttEnabled;
+        refreshSttToggleButton();
+        await sendConfigDebounced();
+        setSttStatus(sttEnabled ? "enabled" : "disabled");
+    });
+
+    el.moreOptionsToggle.addEventListener("click", () => {
+        const isOpen = el.moreOptionsPanel.classList.toggle("open");
+        el.moreOptionsToggle.textContent = isOpen ? "Hide more options" : "More options";
+    });
+
+    el.wirelessPreset.addEventListener("click", async () => {
+        applyConfigToUI({
+            aec_enabled: true,
+            aec_strength: 2.2,
+            aec_delay_blocks: 8,
+            near_end_suppression_mode: true,
+            near_end_suppression_strength: 0.75,
+            stt_input_gain: 1.8,
+            noise_reduction: true,
+            noise_reduction_strength: 2.0,
+            nr_band_low_hz: 200,
+            nr_band_high_hz: 5000,
+            volume: 0.65,
+        });
+        await sendConfigDebounced();
+    });
 
     el.reset.addEventListener("click", async () => {
         applyConfigToUI({
@@ -476,6 +605,9 @@
             aec_enabled: true,
             aec_strength: 1.2,
             aec_delay_blocks: 4,
+            near_end_suppression_mode: false,
+            near_end_suppression_strength: 0.6,
+            stt_input_gain: 1.0,
             stt_enabled: true
         });
         await sendConfigDebounced();
@@ -486,12 +618,17 @@
     socket.on("connect_error", () => setWsState(false, "connection error"));
 
     socket.on("meter", (data) => {
-        const left = Math.max(0, Math.min(100, (Number(data.left) || 0) * 100));
-        const right = Math.max(0, Math.min(100, (Number(data.right) || 0) * 100));
-        el.meterLeft.style.width = left + "%";
-        el.meterRight.style.width = right + "%";
-        const mic = Math.max(left, right);
-        el.micStatus.textContent = "Mic: " + mic.toFixed(0) + "%";
+        const rawLeft = rmsToPercent(data.left);
+        const rawRight = rmsToPercent(data.right);
+
+        // Fast attack + slower release makes speech easier to see.
+        smoothLeftPct = Math.max(rawLeft, smoothLeftPct * 0.84);
+        smoothRightPct = Math.max(rawRight, smoothRightPct * 0.84);
+
+        el.meterLeft.style.width = smoothLeftPct.toFixed(1) + "%";
+        el.meterRight.style.width = smoothRightPct.toFixed(1) + "%";
+        const mic = Math.max(smoothLeftPct, smoothRightPct);
+        el.micStatus.textContent = "Mic: " + mic.toFixed(1) + "%";
     });
 
     let lastTranscriptText = "";
@@ -621,6 +758,7 @@
         }
     }, 2500);
 
+    refreshSttToggleButton();
     loadConfig();
 </script>
 </body>
