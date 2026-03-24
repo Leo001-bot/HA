@@ -325,6 +325,10 @@
         <div class="hint" id="eff-band-label">Band: 120 - 6000 Hz</div>
         <canvas id="spec-canvas" width="740" height="160" style="width:100%;background:#111629;border-radius:8px;margin-top:10px;"></canvas>
         <div class="hint">Green: input spectrum, Blue: output spectrum (normalized)</div>
+
+        <h3 style="margin-top:20px;margin-bottom:8px;font-size:1rem;">Audio Level Amplification</h3>
+        <canvas id="rms-canvas" width="740" height="140" style="width:100%;background:#111629;border-radius:8px;"></canvas>
+        <div class="hint">Orange: input RMS, Green: output RMS (dB scale)</div>
     </div>
 </div>
 
@@ -385,10 +389,12 @@
         effAtten: document.getElementById("eff-atten"),
         effAttenVal: document.getElementById("eff-atten-val"),
         effBandLabel: document.getElementById("eff-band-label"),
-        specCanvas: document.getElementById("spec-canvas")
+        specCanvas: document.getElementById("spec-canvas"),
+        rmsCanvas: document.getElementById("rms-canvas")
     };
 
     const specCtx = el.specCanvas.getContext("2d");
+    const rmsCtx = el.rmsCanvas.getContext("2d");
 
     let lastSttUpdateMs = 0;
     let smoothLeftPct = 0;
@@ -410,6 +416,69 @@
 
     function setSttStatus(text) {
         el.sttStatus.textContent = "STT: " + text;
+    }
+
+    // RMS history for amplification visualization
+    let rmsHistory = [];
+    const maxRmsHistory = 40;
+
+    function drawRmsGraph() {
+        const w = el.rmsCanvas.width;
+        const h = el.rmsCanvas.height;
+        rmsCtx.clearRect(0, 0, w, h);
+        rmsCtx.fillStyle = "#111629";
+        rmsCtx.fillRect(0, 0, w, h);
+
+        if (rmsHistory.length < 2) return;
+
+        // Draw grid
+        rmsCtx.strokeStyle = "#2a3a5a";
+        rmsCtx.lineWidth = 1;
+        for (let db = -60; db <= 0; db += 15) {
+            const y = h - ((db + 65) / 65) * h;
+            rmsCtx.beginPath();
+            rmsCtx.moveTo(0, y);
+            rmsCtx.lineTo(w, y);
+            rmsCtx.stroke();
+            rmsCtx.fillStyle = "#888";
+            rmsCtx.font = "10px monospace";
+            rmsCtx.textAlign = "right";
+            rmsCtx.fillText(db + " dB", w - 5, y - 5);
+        }
+
+        // Draw lines for input and output RMS
+        const drawLine = (arr, color) => {
+            rmsCtx.strokeStyle = color;
+            rmsCtx.lineWidth = 2;
+            rmsCtx.beginPath();
+            for (let i = 0; i < arr.length; i++) {
+                const db = arr[i];
+                const x = (i / (arr.length - 1 || 1)) * w;
+                const y = h - ((db + 65) / 65) * h;
+                if (i === 0) rmsCtx.moveTo(x, y);
+                else rmsCtx.lineTo(x, y);
+            }
+            rmsCtx.stroke();
+        };
+
+        const inputDbs = rmsHistory.map(d => 20 * Math.log10(Math.max(1e-9, d.in_rms)));
+        const outputDbs = rmsHistory.map(d => 20 * Math.log10(Math.max(1e-9, d.out_rms)));
+
+        drawLine(inputDbs, "#ff9944");
+        drawLine(outputDbs, "#44dd44");
+
+        // Draw legend
+        rmsCtx.fillStyle = "#ff9944";
+        rmsCtx.fillRect(10, 10, 12, 12);
+        rmsCtx.fillStyle = "#ccc";
+        rmsCtx.font = "11px sans-serif";
+        rmsCtx.textAlign = "left";
+        rmsCtx.fillText("Input", 28, 18);
+
+        rmsCtx.fillStyle = "#44dd44";
+        rmsCtx.fillRect(100, 10, 12, 12);
+        rmsCtx.fillStyle = "#ccc";
+        rmsCtx.fillText("Output", 118, 18);
     }
 
     function setApiState(ok, msg) {
@@ -876,6 +945,15 @@
         el.effBandLabel.textContent = "Band: " + lo + " - " + hi + " Hz";
 
         drawSpectrum(q && q.spectrum_in, q && q.spectrum_out);
+
+        // Update RMS history for amplification graph
+        if (q && typeof q.in_rms === "number" && typeof q.out_rms === "number") {
+            rmsHistory.push({ in_rms: q.in_rms, out_rms: q.out_rms });
+            if (rmsHistory.length > maxRmsHistory) {
+                rmsHistory.shift();
+            }
+            drawRmsGraph();
+        }
     });
 
     // Fallback: poll latest transcription in case socket events are missed.
