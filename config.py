@@ -24,7 +24,8 @@ class Config:
             'near_end_suppression_strength': 0.6,
             'feedback_cancellation': True,
             'stt_enabled': True,
-            'stt_input_gain': 1.0,
+            'stt_input_gain': 2.0,
+            'stt_sensitivity': 'normal',
         }
         self._pending = self._active.copy()
         self._needs_swap = False

@@ -193,8 +193,17 @@
         </div>
         <div class="row">
             <label for="stt-gain">STT Input Gain</label>
-            <input type="range" id="stt-gain" min="0.5" max="8" step="0.1" value="1.0">
-            <span id="stt-gain-val">1.0x</span>
+            <input type="range" id="stt-gain" min="0.5" max="8" step="0.1" value="2.0">
+            <span id="stt-gain-val">2.0x</span>
+        </div>
+        <div class="row">
+            <label>STT Sensitivity Preset</label>
+            <div style="display:flex;gap:6px;">
+                <button id="stt-preset-quiet" type="button" style="flex:1;padding:8px;font-size:0.9rem;background:#2a4a6a;border:1px solid #4a7aaa;border-radius:6px;color:#fff;cursor:pointer;">Quiet</button>
+                <button id="stt-preset-normal" type="button" style="flex:1;padding:8px;font-size:0.9rem;background:#2a4a6a;border:1px solid #4a7aaa;border-radius:6px;color:#fff;cursor:pointer;">Normal</button>
+                <button id="stt-preset-loud" type="button" style="flex:1;padding:8px;font-size:0.9rem;background:#2a4a6a;border:1px solid #4a7aaa;border-radius:6px;color:#fff;cursor:pointer;">Loud</button>
+            </div>
+            <span class="hint">Quick sensitivity profiles</span>
         </div>
         <div class="row">
             <label for="stt-toggle">STT</label>
@@ -351,6 +360,9 @@
         sttGain: document.getElementById("stt-gain"),
         sttGainVal: document.getElementById("stt-gain-val"),
         sttToggle: document.getElementById("stt-toggle"),
+        sttPresetQuiet: document.getElementById("stt-preset-quiet"),
+        sttPresetNormal: document.getElementById("stt-preset-normal"),
+        sttPresetLoud: document.getElementById("stt-preset-loud"),
         moreOptionsToggle: document.getElementById("more-options-toggle"),
         moreOptionsPanel: document.getElementById("more-options-panel"),
         wirelessPreset: document.getElementById("wireless-preset"),
@@ -515,6 +527,21 @@
         if (typeof cfg.stt_input_gain === "number") {
             el.sttGain.value = cfg.stt_input_gain;
             el.sttGainVal.textContent = cfg.stt_input_gain.toFixed(1) + "x";
+            // Highlight matching preset
+            const gain = cfg.stt_input_gain;
+            if (gain >= 3.5) {
+                el.sttPresetQuiet.style.borderColor = "#88aaff";
+                el.sttPresetNormal.style.borderColor = "#4a7aaa";
+                el.sttPresetLoud.style.borderColor = "#4a7aaa";
+            } else if (gain <= 1.3) {
+                el.sttPresetQuiet.style.borderColor = "#4a7aaa";
+                el.sttPresetNormal.style.borderColor = "#4a7aaa";
+                el.sttPresetLoud.style.borderColor = "#88aaff";
+            } else {
+                el.sttPresetQuiet.style.borderColor = "#4a7aaa";
+                el.sttPresetNormal.style.borderColor = "#88aaff";
+                el.sttPresetLoud.style.borderColor = "#4a7aaa";
+            }
         }
         if (typeof cfg.stt_enabled === "boolean") sttEnabled = cfg.stt_enabled;
         refreshSttToggleButton();
@@ -612,7 +639,22 @@
         sendConfigDebounced();
     });
     el.sttGain.addEventListener("input", () => {
-        el.sttGainVal.textContent = Number(el.sttGain.value).toFixed(1) + "x";
+        const gain = Number(el.sttGain.value);
+        el.sttGainVal.textContent = gain.toFixed(1) + "x";
+        // Update preset highlighting
+        if (gain >= 3.5) {
+            el.sttPresetQuiet.style.borderColor = "#88aaff";
+            el.sttPresetNormal.style.borderColor = "#4a7aaa";
+            el.sttPresetLoud.style.borderColor = "#4a7aaa";
+        } else if (gain <= 1.3) {
+            el.sttPresetQuiet.style.borderColor = "#4a7aaa";
+            el.sttPresetNormal.style.borderColor = "#4a7aaa";
+            el.sttPresetLoud.style.borderColor = "#88aaff";
+        } else {
+            el.sttPresetQuiet.style.borderColor = "#4a7aaa";
+            el.sttPresetNormal.style.borderColor = "#88aaff";
+            el.sttPresetLoud.style.borderColor = "#4a7aaa";
+        }
         sendConfigDebounced();
     });
     el.sttToggle.addEventListener("click", async () => {
@@ -620,6 +662,34 @@
         refreshSttToggleButton();
         await sendConfigDebounced();
         updateSttStatusFromLiveness();
+    });
+
+    // STT Sensitivity Presets
+    el.sttPresetQuiet.addEventListener("click", async () => {
+        el.sttGain.value = 4.0;
+        el.sttGainVal.textContent = "4.0x";
+        el.sttPresetQuiet.style.borderColor = "#88aaff";
+        el.sttPresetNormal.style.borderColor = "#4a7aaa";
+        el.sttPresetLoud.style.borderColor = "#4a7aaa";
+        await sendConfigDebounced();
+    });
+
+    el.sttPresetNormal.addEventListener("click", async () => {
+        el.sttGain.value = 2.0;
+        el.sttGainVal.textContent = "2.0x";
+        el.sttPresetQuiet.style.borderColor = "#4a7aaa";
+        el.sttPresetNormal.style.borderColor = "#88aaff";
+        el.sttPresetLoud.style.borderColor = "#4a7aaa";
+        await sendConfigDebounced();
+    });
+
+    el.sttPresetLoud.addEventListener("click", async () => {
+        el.sttGain.value = 1.0;
+        el.sttGainVal.textContent = "1.0x";
+        el.sttPresetQuiet.style.borderColor = "#4a7aaa";
+        el.sttPresetNormal.style.borderColor = "#4a7aaa";
+        el.sttPresetLoud.style.borderColor = "#88aaff";
+        await sendConfigDebounced();
     });
 
     el.moreOptionsToggle.addEventListener("click", () => {

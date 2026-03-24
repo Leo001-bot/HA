@@ -25,8 +25,8 @@ class StreamingSTT:
         self._segment_seconds = 0.0
 
         # Tunables for real-time behavior.
-        self._silence_threshold = 0.008
-        self._utterance_silence_seconds = 0.45
+        self._silence_threshold = 0.005
+        self._utterance_silence_seconds = 0.35
         self._partial_emit_interval = 0.08
         self._partial_repeat_interval = 0.6
         self._max_segment_seconds = 12.0
