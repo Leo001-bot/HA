@@ -269,9 +269,31 @@
     </div>
 
     <div class="card">
-        <h2>Audio Input Level</h2>
-        <div>Left<div class="meter"><div id="meter-left" class="meter-fill"></div></div></div>
-        <div>Right<div class="meter"><div id="meter-right" class="meter-fill"></div></div></div>
+        <h2>Input Level Monitor</h2>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:15px;">
+            <div>
+                <div style="font-size:0.85rem;margin-bottom:4px;color:#999;">
+                    <strong>Left</strong> <span id="level-left-db" style="float:right;">-∞ dB</span>
+                </div>
+                <div class="meter"><div id="meter-left" class="meter-fill"></div></div>
+            </div>
+            <div>
+                <div style="font-size:0.85rem;margin-bottom:4px;color:#999;">
+                    <strong>Right</strong> <span id="level-right-db" style="float:right;">-∞ dB</span>
+                </div>
+                <div class="meter"><div id="meter-right" class="meter-fill"></div></div>
+            </div>
+        </div>
+        <div style="background:#1a1a2e;padding:8px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <span style="font-size:0.9rem;color:#999;">Peak Input:</span>
+                <span id="level-peak-db" style="font-size:1.1rem;font-weight:bold;margin-left:6px;color:#f9f06b;">-∞ dB</span>
+            </div>
+            <div>
+                <span style="font-size:0.9rem;color:#999;">Detection:</span>
+                <span id="detection-indicator" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#666;margin-left:6px;vertical-align:middle;"></span>
+            </div>
+        </div>
     </div>
 
     <div class="card">
@@ -335,6 +357,10 @@
         reset: document.getElementById("reset"),
         meterLeft: document.getElementById("meter-left"),
         meterRight: document.getElementById("meter-right"),
+        levelLeftDb: document.getElementById("level-left-db"),
+        levelRightDb: document.getElementById("level-right-db"),
+        levelPeakDb: document.getElementById("level-peak-db"),
+        detectionIndicator: document.getElementById("detection-indicator"),
         transcription: document.getElementById("transcription"),
         apiDot: document.getElementById("api-dot"),
         apiStatus: document.getElementById("api-status"),
@@ -358,6 +384,8 @@
     let sttEnabled = true;
     let apiOnline = false;
     let wsOnline = false;
+    let lastDetectionTime = 0;
+    const detectionDecayMs = 800;
 
     function rmsToPercent(rms) {
         const v = Math.max(1e-9, Number(rms) || 0);
@@ -664,7 +692,30 @@
         el.meterRight.style.width = smoothRightPct.toFixed(1) + "%";
         const mic = Math.max(smoothLeftPct, smoothRightPct);
         el.micStatus.textContent = "Mic: " + mic.toFixed(1) + "%";
+
+        // Calculate and display dB values.
+        const dbLeft = 20 * Math.log10(Math.max(1e-9, data.left));
+        const dbRight = 20 * Math.log10(Math.max(1e-9, data.right));
+        const dbPeak = Math.max(dbLeft, dbRight);
+        el.levelLeftDb.textContent = dbLeft.toFixed(1) + " dB";
+        el.levelRightDb.textContent = dbRight.toFixed(1) + " dB";
+        el.levelPeakDb.textContent = dbPeak.toFixed(1) + " dB";
+
+        // Update detection indicator based on input level.
+        const thresholdDb = -40;
+        if (dbPeak > thresholdDb) {
+            lastDetectionTime = performance.now();
+            el.detectionIndicator.style.background = "#33d17a";
+        }
     });
+
+    // Update detection indicator decay.
+    setInterval(() => {
+        const now = performance.now();
+        if (now - lastDetectionTime > detectionDecayMs) {
+            el.detectionIndicator.style.background = "#666";
+        }
+    }, 50);
 
     let lastTranscriptText = "";
     let lastTranscriptNode = null;
@@ -707,6 +758,11 @@
         lastSttUpdateMs = Date.now();
         renderTranscript(data && data.text);
         updateSttStatusFromLiveness();
+        // Trigger detection indicator for STT activity.
+        if (data && data.text && !data.text.includes("STT")) {
+            lastDetectionTime = performance.now();
+            el.detectionIndicator.style.background = "#4da6ff";
+        }
     });
 
     function drawSpectrum(inputArr, outputArr) {
