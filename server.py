@@ -11,6 +11,9 @@ socketio = SocketIO(
     async_mode="threading",
     logger=False,
     engineio_logger=False,
+    ping_timeout=120,
+    ping_interval=30,
+    max_http_buffer_size=1e6,
 )
 
 # Shared references (set by main.py)
@@ -20,6 +23,7 @@ transcription_queue = None
 quality_queue = None
 latest_transcription = None
 latest_transcription_seq = 0
+diagnostics_provider = None
 
 
 @app.route('/')
@@ -105,18 +109,36 @@ def get_latest_transcription():
     })
 
 
+@app.route('/api/diagnostics', methods=['GET'])
+def get_diagnostics():
+    payload = {
+        'server': 'ok',
+        'has_config': config is not None,
+    }
+    if diagnostics_provider is not None:
+        try:
+            extra = diagnostics_provider()
+            if isinstance(extra, dict):
+                payload.update(extra)
+        except Exception as e:
+            payload['diagnostics_error'] = str(e)
+    return jsonify(payload)
+
+
 @socketio.on('connect')
 def handle_connect():
+    print(f"[SOCKET.IO] Client connected, SID: {request.sid}")
     if latest_transcription:
-        socketio.emit('transcription', {'text': latest_transcription})
+        socketio.emit('transcription', {'text': latest_transcription}, to=request.sid)
 
 
-def start_server(host='0.0.0.0', port=5000, config_obj=None, meter_q=None, trans_q=None, quality_q=None):
-    global config, audio_meter_queue, transcription_queue, quality_queue
+def start_server(host='0.0.0.0', port=5000, config_obj=None, meter_q=None, trans_q=None, quality_q=None, diagnostics_provider_fn=None):
+    global config, audio_meter_queue, transcription_queue, quality_queue, diagnostics_provider
     config = config_obj
     audio_meter_queue = meter_q
     transcription_queue = trans_q
     quality_queue = quality_q
+    diagnostics_provider = diagnostics_provider_fn
 
     threading.Thread(target=background_meter_updater, daemon=True).start()
     threading.Thread(target=background_transcription_updater, daemon=True).start()

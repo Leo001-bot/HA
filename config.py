@@ -7,28 +7,26 @@ class Config:
     def __init__(self):
         self._lock = threading.RLock()
         self._active = {
-            'volume': 0.7,
+            'volume': 0.55,
+            'audio_blocksize': 512,
+            'block_mode': 'custom',
+            'bypass_all': False,
             'noise_reduction': True,
-            'noise_reduction_strength': 1.4,
+            'noise_reduction_strength': 1.1,
             'nr_band_low_hz': 120.0,
             'nr_band_high_hz': 6000.0,
             'nr_cepstral_smoothing': True,
             'nr_attack_release_split': True,
-            'nr_wind_mode': False,
-            'nr_wind_sensitivity': 0.6,
             'compression_strength': 1.0,
-            'aec_enabled': True,
-            'aec_strength': 1.2,
-            'aec_delay_blocks': 4,
-            'near_end_suppression_mode': False,
-            'near_end_suppression_strength': 0.6,
-            'feedback_cancellation': True,
+            'eq_enabled': True,
+            'eq_bass_db': -3.0,
+            'eq_presence_db': 2.5,
+            'eq_treble_db': -0.5,
             'stt_enabled': True,
-            'stt_input_gain': 2.0,
+            'stt_input_gain': 1.1,
             'stt_sensitivity': 'normal',
+            'stt_model_root': 'models',
         }
-        self._pending = self._active.copy()
-        self._needs_swap = False
 
     def get(self, key):
         with self._lock:
@@ -37,16 +35,20 @@ class Config:
     def set(self, key, value):
         """Update config immediately for UI visibility and runtime use."""
         with self._lock:
-            # Backward compatibility for older UI/client key.
-            if key == 'feedback_cancellation':
-                key = 'aec_enabled'
-
             if key == 'volume':
                 try:
                     value = float(value)
                 except (TypeError, ValueError):
                     value = self._active.get('volume', 0.7)
-                value = max(0.0, min(3.0, value))
+                value = max(0.0, min(6.0, value))
+            if key == 'audio_blocksize':
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    value = self._active.get('audio_blocksize', 128)
+                value = max(32, min(2048, value))
+                # Keep to sensible powers-of-two-ish values for audio callbacks.
+                value = int(round(value / 32.0) * 32)
             if key == 'noise_reduction_strength':
                 try:
                     value = float(value)
@@ -65,45 +67,27 @@ class Config:
                 except (TypeError, ValueError):
                     value = self._active.get('nr_band_high_hz', 6000.0)
                 value = max(100.0, min(8000.0, value))
-            if key == 'nr_wind_sensitivity':
-                try:
-                    value = float(value)
-                except (TypeError, ValueError):
-                    value = self._active.get('nr_wind_sensitivity', 0.6)
-                value = max(0.0, min(1.0, value))
-            if key == 'aec_strength':
-                try:
-                    value = float(value)
-                except (TypeError, ValueError):
-                    value = self._active.get('aec_strength', 1.2)
-                value = max(0.2, min(3.0, value))
-            if key == 'aec_delay_blocks':
-                try:
-                    value = int(value)
-                except (TypeError, ValueError):
-                    value = self._active.get('aec_delay_blocks', 4)
-                value = max(1, min(16, value))
-            if key == 'near_end_suppression_strength':
-                try:
-                    value = float(value)
-                except (TypeError, ValueError):
-                    value = self._active.get('near_end_suppression_strength', 0.6)
-                value = max(0.0, min(1.0, value))
             if key == 'stt_input_gain':
                 try:
                     value = float(value)
                 except (TypeError, ValueError):
                     value = self._active.get('stt_input_gain', 1.0)
                 value = max(0.5, min(8.0, value))
-            if key in ('noise_reduction', 'nr_cepstral_smoothing', 'nr_attack_release_split', 'nr_wind_mode', 'aec_enabled', 'near_end_suppression_mode', 'stt_enabled'):
+            if key in ('eq_bass_db', 'eq_presence_db', 'eq_treble_db'):
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = self._active.get(key, 0.0)
+                value = max(-12.0, min(12.0, value))
+            if key == 'stt_model_root':
+                if value is None:
+                    value = 'models'
+                value = str(value).strip()
+                if not value or value.lower() == 'none':
+                    value = 'models'
+            if key in ('noise_reduction', 'nr_cepstral_smoothing', 'nr_attack_release_split', 'stt_enabled', 'eq_enabled', 'bypass_all'):
                 value = bool(value)
 
-            # Keep legacy key mirrored for existing UI/client code.
-            if key == 'aec_enabled':
-                self._pending['feedback_cancellation'] = bool(value)
-                self._active['feedback_cancellation'] = bool(value)
-
-            self._pending[key] = value
             self._active[key] = value
 
             # Keep band limits ordered.
@@ -116,18 +100,9 @@ class Config:
                     low = max(0.0, high - 100.0)
                 self._active['nr_band_low_hz'] = low
                 self._active['nr_band_high_hz'] = high
-                self._pending['nr_band_low_hz'] = low
-                self._pending['nr_band_high_hz'] = high
-
-            self._needs_swap = False
 
     def apply(self):
-        """Compatibility hook for existing processing loop."""
-        with self._lock:
-            if self._needs_swap:
-                self._active = self._pending.copy()
-                self._needs_swap = False
-                return True
+        """Compatibility hook for existing processing loop (no-op with immediate updates)."""
         return False
 
     def get_all(self):

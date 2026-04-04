@@ -6,9 +6,9 @@ class NoiseReducer:
 
     def __init__(self, sample_rate=16000, frame_size=256, hop_size=128):
         self.sample_rate = sample_rate
-        self.frame_size = frame_size
-        self.hop_size = hop_size
-        self.window = np.hanning(frame_size)
+        # Kept for API compatibility with older calls.
+        _ = frame_size
+        _ = hop_size
         self.noise_psd = None
         self.ph1_mean = None
         self.prev_gain = None
@@ -27,7 +27,6 @@ class NoiseReducer:
         self.log_glr_fact = np.log(1.0 / (1.0 + xi_opt))
         self.glr_exp = xi_opt / (1.0 + xi_opt)
         self.dd_alpha = 0.92
-        self.wind_ratio_lp = 0.0
 
     def _cepstral_smooth_gain(self, gain, strength):
         # Real-cepstrum smoothing to reduce musical noise while keeping spectral envelope.
@@ -41,48 +40,12 @@ class NoiseReducer:
         smooth_gain = np.exp(smooth_log_mag)
         return np.clip(smooth_gain.astype(np.float32), 0.0, 1.0)
 
-    def _apply_wind_mode(self, gain, power, wind_mode, wind_sensitivity, strength):
-        if not wind_mode:
-            return gain
-
-        n_bins = gain.size
-        if n_bins < 8:
-            return gain
-
-        lf_bins = max(3, int(0.14 * n_bins))
-        low_e = float(np.mean(power[:lf_bins])) + 1e-10
-        full_e = float(np.mean(power)) + 1e-10
-        ratio = low_e / full_e
-
-        # Low-pass ratio detector similar to openMHA wind-noise logic.
-        det_alpha = np.clip(0.90 + 0.06 * (1.0 - wind_sensitivity), 0.82, 0.98)
-        self.wind_ratio_lp = det_alpha * self.wind_ratio_lp + (1.0 - det_alpha) * ratio
-        threshold = np.clip(1.18 - 0.40 * wind_sensitivity, 0.75, 1.25)
-        if self.wind_ratio_lp <= threshold:
-            return gain
-
-        sev = np.clip((self.wind_ratio_lp - threshold) / max(0.2, threshold), 0.0, 2.0)
-        sev *= np.clip(0.7 + 0.4 * strength, 0.7, 2.0)
-        max_att_db = np.clip(-6.0 - 10.0 * wind_sensitivity, -18.0, -5.0)
-        lf_gain = 10.0 ** ((max_att_db * min(1.0, sev)) / 20.0)
-
-        out = gain.copy()
-        out[:lf_bins] *= lf_gain
-        if lf_bins < n_bins - 1:
-            taper_bins = min(lf_bins, n_bins - lf_bins)
-            if taper_bins > 0:
-                taper = np.linspace(lf_gain, 1.0, taper_bins, endpoint=True)
-                out[lf_bins:lf_bins + taper_bins] *= taper
-        return np.clip(out, 0.0, 1.0)
-
     def process(
         self,
         audio,
         strength=1.0,
         cepstral_smoothing=True,
         attack_release_split=True,
-        wind_mode=False,
-        wind_sensitivity=0.6,
         band_low_hz=80.0,
         band_high_hz=7000.0,
     ):
@@ -91,7 +54,6 @@ class NoiseReducer:
             return audio
 
         strength = float(np.clip(strength, 0.3, 3.0))
-        wind_sensitivity = float(np.clip(wind_sensitivity, 0.0, 1.0))
         band_low_hz = float(np.clip(band_low_hz, 0.0, self.sample_rate * 0.49))
         band_high_hz = float(np.clip(band_high_hz, band_low_hz + 50.0, self.sample_rate * 0.5))
 
@@ -141,7 +103,6 @@ class NoiseReducer:
         gain = np.clip(gain, min_gain, 1.0)
         if cepstral_smoothing:
             gain = self._cepstral_smooth_gain(gain, strength)
-        gain = self._apply_wind_mode(gain, power, wind_mode, wind_sensitivity, strength)
 
         # Apply NR only inside selected bandwidth; outside the band remains untouched.
         freqs = np.fft.rfftfreq(audio.size, d=1.0 / self.sample_rate)
@@ -201,6 +162,47 @@ class Compressor:
         gain_curve = np.interp(freqs, self.bands, gain_per_band, left=1, right=1)
         fft_compressed = fft * gain_curve
         return np.fft.irfft(fft_compressed, n=len(audio))
+
+
+class SpeechEQ:
+    """Low-cost frequency-domain EQ tuned for speech clarity."""
+
+    def __init__(self, sample_rate=16000):
+        self.sample_rate = sample_rate
+
+    def process(self, audio, bass_db=0.0, presence_db=0.0, treble_db=0.0):
+        audio = np.asarray(audio, dtype=np.float32)
+        if audio.size == 0:
+            return audio
+
+        bass_db = float(np.clip(bass_db, -12.0, 12.0))
+        presence_db = float(np.clip(presence_db, -12.0, 12.0))
+        treble_db = float(np.clip(treble_db, -12.0, 12.0))
+
+        fft = np.fft.rfft(audio)
+        freqs = np.fft.rfftfreq(audio.size, d=1.0 / self.sample_rate)
+
+        gains = np.ones_like(freqs, dtype=np.float32)
+
+        # Speech-friendly shaping: trim rumble, lift intelligibility, avoid hiss.
+        bass_band = np.clip((320.0 - freqs) / 260.0, 0.0, 1.0)
+        presence_band = np.exp(-0.5 * ((freqs - 2300.0) / 1200.0) ** 2)
+        treble_band = np.exp(-0.5 * ((freqs - 4200.0) / 1700.0) ** 2)
+
+        gains *= 10.0 ** ((bass_db * bass_band) / 20.0)
+        gains *= 10.0 ** ((presence_db * presence_band) / 20.0)
+        gains *= 10.0 ** ((treble_db * treble_band) / 20.0)
+
+        # Gentle anti-harshness above ~6.3kHz keeps feedback natural for long listening.
+        harsh_band = np.clip((freqs - 6300.0) / 1300.0, 0.0, 1.0)
+        harsh_db = np.clip(0.25 * max(0.0, treble_db) + 0.15 * max(0.0, presence_db), 0.0, 3.0)
+        gains *= 10.0 ** ((-harsh_db * harsh_band) / 20.0)
+
+        # Keep EQ boost bounded to reduce distortion before compressor/limiter.
+        gains = np.clip(gains, 0.35, 2.2)
+
+        out = np.fft.irfft(fft * gains, n=audio.size)
+        return out.astype(np.float32, copy=False)
 
 
 class FeedbackCanceller:
@@ -318,3 +320,59 @@ class FeedbackCanceller:
         if n < input_block.size:
             out[n:] = input_block[n:]
         return out
+
+
+class OutputLimiter:
+    """Peak limiter with adaptive attack/release to prevent distortion."""
+
+    def __init__(self, threshold=0.95, attack_ms=2.0, release_ms=50.0, sample_rate=16000):
+        self.threshold = float(np.clip(threshold, 0.5, 1.0))
+        self.sample_rate = sample_rate
+        self.attack_samples = int(np.ceil(sample_rate * attack_ms / 1000.0))
+        self.release_samples = int(np.ceil(sample_rate * release_ms / 1000.0))
+        self.gain = 1.0
+        self.samples_since_peak = self.release_samples
+
+    def process(self, audio, threshold=None):
+        """Apply limiting to prevent peaks above threshold."""
+        audio = np.asarray(audio, dtype=np.float32)
+        if audio.size == 0:
+            return audio
+
+        if threshold is not None:
+            self.threshold = float(np.clip(threshold, 0.5, 1.0))
+
+        output = np.empty_like(audio)
+        gain = float(self.gain)
+        samples_since_peak = int(self.samples_since_peak)
+
+        for i in range(len(audio)):
+            sample = float(audio[i]) * gain
+            peak = np.abs(sample)
+
+            # Attack phase: detect peaks and reduce gain quickly.
+            if peak > self.threshold:
+                # Adaptive gain reduction based on overshoot amount.
+                overshoot = peak / self.threshold
+                target_gain = 1.0 / (overshoot + 0.01)
+                alpha_attack = 1.0 / max(1.0, self.attack_samples / 8.0)
+                gain = (1.0 - alpha_attack) * gain + alpha_attack * target_gain
+                samples_since_peak = 0
+            else:
+                # Release phase: gradually return to unity gain.
+                samples_since_peak += 1
+                if samples_since_peak > self.release_samples:
+                    alpha_release = 1.0 / max(1.0, self.release_samples / 16.0)
+                    gain = (1.0 - alpha_release) * gain + alpha_release * 1.0
+                else:
+                    # Proportional release based on how far into release phase we are.
+                    release_progress = float(samples_since_peak) / float(self.release_samples)
+                    alpha_release = release_progress / max(1.0, self.release_samples / 16.0)
+                    gain = (1.0 - alpha_release) * gain + alpha_release * 1.0
+
+            gain = float(np.clip(gain, 0.1, 1.0))
+            output[i] = sample
+
+        self.gain = float(gain)
+        self.samples_since_peak = samples_since_peak
+        return output

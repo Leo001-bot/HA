@@ -178,13 +178,48 @@
         <h2>Hearing Aid Controls</h2>
         <div class="row">
             <label for="volume">Volume</label>
-            <input type="range" id="volume" min="0" max="3" step="0.05" value="0.70">
+            <input type="range" id="volume" min="0" max="6" step="0.05" value="0.70">
             <span id="vol-val">0.70</span>
         </div>
         <div class="row">
-            <label for="nr">Noise Reduction</label>
+            <label for="audio-blocksize">Audio Block Size</label>
+            <input type="range" id="audio-blocksize" min="32" max="2048" step="32" value="512">
+            <span id="audio-blocksize-val">512</span>
+        </div>
+        <div class="row">
+            <label for="audio-blocksize-choice">Block Size Preset</label>
+            <select id="audio-blocksize-choice" style="background:#1d2b3e;color:#fff;border:1px solid #4a7aaa;border-radius:6px;padding:6px;">
+                <option value="32">32 (ultra low latency)</option>
+                <option value="64">64</option>
+                <option value="128">128</option>
+                <option value="256">256</option>
+                <option value="512" selected>512 (default)</option>
+                <option value="1024">1024</option>
+                <option value="1536">1536</option>
+                <option value="2048">2048 (high stability)</option>
+            </select>
+            <span class="hint">Pick fixed values without dragging</span>
+        </div>
+        <div class="row">
+            <label>Block Size Mode</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button id="block-mode-low" type="button" style="flex:1;padding:8px;font-size:0.9rem;background:#2a4a6a;border:1px solid #4a7aaa;border-radius:6px;color:#fff;cursor:pointer;min-width:110px;">Low Latency</button>
+                <button id="block-mode-balanced" type="button" style="flex:1;padding:8px;font-size:0.9rem;background:#2a4a6a;border:1px solid #4a7aaa;border-radius:6px;color:#fff;cursor:pointer;min-width:90px;">Balanced</button>
+                <button id="block-mode-stable" type="button" style="flex:1;padding:8px;font-size:0.9rem;background:#2a4a6a;border:1px solid #4a7aaa;border-radius:6px;color:#fff;cursor:pointer;min-width:80px;">Stable</button>
+                <button id="block-mode-custom" type="button" style="flex:1;padding:8px;font-size:0.9rem;background:#2a4a6a;border:1px solid #4a7aaa;border-radius:6px;color:#fff;cursor:pointer;min-width:90px;">Custom</button>
+            </div>
+            <span class="hint" id="block-mode-hint">Custom mode: self-setting with slider or dropdown</span>
+        </div>
+        <div class="row" style="background: rgba(255,223,0,0.08); padding: 8px; border-radius: 4px; margin: 8px 0;">
+            <strong style="font-size: 0.95rem;">🚀 Master Bypass</strong><br/>
+            <label for="bypass-all" style="margin-top: 6px;">Direct Passthrough (Minimal Latency)</label>
+            <input type="checkbox" id="bypass-all">
+            <span class="hint" id="latency-display" style="display: block; margin-top: 6px; color: #ffd700; font-size: 0.9rem;">Estimated latency: ~32ms</span>
+        </div>
+        <div class="row">
+            <label for="nr">Apply Noise Filter</label>
             <input type="checkbox" id="nr" checked>
-            <span class="hint">Toggle spectral denoising</span>
+            <span class="hint">Turns denoising processing on/off</span>
         </div>
         <div class="row">
             <label for="nr-strength">NR Strength</label>
@@ -193,8 +228,8 @@
         </div>
         <div class="row">
             <label for="stt-gain">STT Input Gain</label>
-            <input type="range" id="stt-gain" min="0.5" max="8" step="0.1" value="2.0">
-            <span id="stt-gain-val">2.0x</span>
+            <input type="range" id="stt-gain" min="0.5" max="8" step="0.1" value="1.1">
+            <span id="stt-gain-val">1.1x</span>
         </div>
         <div class="row">
             <label>STT Sensitivity Preset</label>
@@ -233,44 +268,29 @@
             <span class="hint">Faster noise attack, slower speech release</span>
         </div>
         <div class="row">
-            <label for="nr-wind">Wind Mode</label>
-            <input type="checkbox" id="nr-wind">
-            <span class="hint">Low-frequency wind attenuation</span>
-        </div>
-        <div class="row">
-            <label for="nr-wind-sens">Wind Sensitivity</label>
-            <input type="range" id="nr-wind-sens" min="0" max="1" step="0.05" value="0.6">
-            <span id="nr-wind-sens-val">0.60</span>
-        </div>
-        <div class="row">
             <label for="comp">Compression Strength</label>
             <input type="range" id="comp" min="0" max="2" step="0.1" value="1.0">
             <span id="comp-val">1.0</span>
         </div>
         <div class="row">
-            <label for="aec-enabled">AEC Enabled</label>
-            <input type="checkbox" id="aec-enabled" checked>
-            <span class="hint">Acoustic echo cancellation</span>
+            <label for="eq-enabled">Speech EQ</label>
+            <input type="checkbox" id="eq-enabled" checked>
+            <span class="hint">Shape bass/presence/treble to reduce distortion and improve clarity</span>
         </div>
         <div class="row">
-            <label for="aec-strength">AEC Strength</label>
-            <input type="range" id="aec-strength" min="0.2" max="3" step="0.1" value="1.2">
-            <span id="aec-strength-val">1.2</span>
+            <label for="eq-bass">EQ Bass (dB)</label>
+            <input type="range" id="eq-bass" min="-12" max="12" step="0.5" value="-3.0">
+            <span id="eq-bass-val">-3.0</span>
         </div>
         <div class="row">
-            <label for="aec-delay">AEC Delay Blocks</label>
-            <input type="range" id="aec-delay" min="1" max="16" step="1" value="4">
-            <span id="aec-delay-val">4</span>
+            <label for="eq-presence">EQ Presence (dB)</label>
+            <input type="range" id="eq-presence" min="-12" max="12" step="0.5" value="2.5">
+            <span id="eq-presence-val">2.5</span>
         </div>
         <div class="row">
-            <label for="near-end-mode">Near-end Suppression</label>
-            <input type="checkbox" id="near-end-mode">
-            <span class="hint">Reduce own-voice sidetone (optional)</span>
-        </div>
-        <div class="row">
-            <label for="near-end-strength">Near-end Strength</label>
-            <input type="range" id="near-end-strength" min="0" max="1" step="0.05" value="0.6">
-            <span id="near-end-strength-val">0.60</span>
+            <label for="eq-treble">EQ Treble (dB)</label>
+            <input type="range" id="eq-treble" min="-12" max="12" step="0.5" value="-0.5">
+            <span id="eq-treble-val">-0.5</span>
         </div>
         <button id="wireless-preset" type="button">Apply Wireless Earphone Preset</button>
         </div>
@@ -306,7 +326,10 @@
     </div>
 
     <div class="card">
-        <h2>Real-time Transcription</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <h2 style="margin:0;">Real-time Transcription</h2>
+            <button id="clear-transcription" type="button" style="padding:6px 10px;border:1px solid #4a7aaa;background:#243245;color:#fff;border-radius:6px;cursor:pointer;">Clear</button>
+        </div>
         <div id="transcription" class="transcription">Waiting for speech...</div>
     </div>
 
@@ -323,6 +346,7 @@
             <span id="eff-atten-val">0.0 dB</span>
         </div>
         <div class="hint" id="eff-band-label">Band: 120 - 6000 Hz</div>
+        <div class="hint" id="eff-state">Noise filter: ON</div>
         <canvas id="spec-canvas" width="740" height="160" style="width:100%;background:#111629;border-radius:8px;margin-top:10px;"></canvas>
         <div class="hint">Green: input spectrum, Blue: output spectrum (normalized)</div>
 
@@ -339,6 +363,16 @@
     const el = {
         volume: document.getElementById("volume"),
         volVal: document.getElementById("vol-val"),
+        audioBlocksize: document.getElementById("audio-blocksize"),
+        audioBlocksizeVal: document.getElementById("audio-blocksize-val"),
+        audioBlocksizeChoice: document.getElementById("audio-blocksize-choice"),
+        blockModeLow: document.getElementById("block-mode-low"),
+        blockModeBalanced: document.getElementById("block-mode-balanced"),
+        blockModeStable: document.getElementById("block-mode-stable"),
+        blockModeCustom: document.getElementById("block-mode-custom"),
+        blockModeHint: document.getElementById("block-mode-hint"),
+        bypassAll: document.getElementById("bypass-all"),
+        latencyDisplay: document.getElementById("latency-display"),
         nr: document.getElementById("nr"),
         nrStrength: document.getElementById("nr-strength"),
         nrStrengthVal: document.getElementById("nr-strength-val"),
@@ -348,25 +382,21 @@
         nrBandHighVal: document.getElementById("nr-band-high-val"),
         nrCeps: document.getElementById("nr-ceps"),
         nrAr: document.getElementById("nr-ar"),
-        nrWind: document.getElementById("nr-wind"),
-        nrWindSens: document.getElementById("nr-wind-sens"),
-        nrWindSensVal: document.getElementById("nr-wind-sens-val"),
         comp: document.getElementById("comp"),
         compVal: document.getElementById("comp-val"),
-        aecEnabled: document.getElementById("aec-enabled"),
-        aecStrength: document.getElementById("aec-strength"),
-        aecStrengthVal: document.getElementById("aec-strength-val"),
-        aecDelay: document.getElementById("aec-delay"),
-        aecDelayVal: document.getElementById("aec-delay-val"),
-        nearEndMode: document.getElementById("near-end-mode"),
-        nearEndStrength: document.getElementById("near-end-strength"),
-        nearEndStrengthVal: document.getElementById("near-end-strength-val"),
         sttGain: document.getElementById("stt-gain"),
         sttGainVal: document.getElementById("stt-gain-val"),
         sttToggle: document.getElementById("stt-toggle"),
         sttPresetQuiet: document.getElementById("stt-preset-quiet"),
         sttPresetNormal: document.getElementById("stt-preset-normal"),
         sttPresetLoud: document.getElementById("stt-preset-loud"),
+        eqEnabled: document.getElementById("eq-enabled"),
+        eqBass: document.getElementById("eq-bass"),
+        eqBassVal: document.getElementById("eq-bass-val"),
+        eqPresence: document.getElementById("eq-presence"),
+        eqPresenceVal: document.getElementById("eq-presence-val"),
+        eqTreble: document.getElementById("eq-treble"),
+        eqTrebleVal: document.getElementById("eq-treble-val"),
         moreOptionsToggle: document.getElementById("more-options-toggle"),
         moreOptionsPanel: document.getElementById("more-options-panel"),
         wirelessPreset: document.getElementById("wireless-preset"),
@@ -377,6 +407,7 @@
         levelRightDb: document.getElementById("level-right-db"),
         levelPeakDb: document.getElementById("level-peak-db"),
         detectionIndicator: document.getElementById("detection-indicator"),
+        clearTranscription: document.getElementById("clear-transcription"),
         transcription: document.getElementById("transcription"),
         apiDot: document.getElementById("api-dot"),
         apiStatus: document.getElementById("api-status"),
@@ -389,6 +420,7 @@
         effAtten: document.getElementById("eff-atten"),
         effAttenVal: document.getElementById("eff-atten-val"),
         effBandLabel: document.getElementById("eff-band-label"),
+        effState: document.getElementById("eff-state"),
         specCanvas: document.getElementById("spec-canvas"),
         rmsCanvas: document.getElementById("rms-canvas")
     };
@@ -402,8 +434,11 @@
     let sttEnabled = true;
     let apiOnline = false;
     let wsOnline = false;
+    let lastApiSuccessMs = 0;
+    let lastWsSuccessMs = 0;
     let lastDetectionTime = 0;
     const detectionDecayMs = 800;
+    let blockMode = "custom";
 
     function rmsToPercent(rms) {
         const v = Math.max(1e-9, Number(rms) || 0);
@@ -416,6 +451,18 @@
 
     function setSttStatus(text) {
         el.sttStatus.textContent = "STT: " + text;
+    }
+
+    function updateNoiseFilterUiState() {
+        const on = !!el.nr.checked;
+        el.effState.textContent = on ? "Noise filter: ON" : "Noise filter: OFF";
+        el.effState.style.color = on ? "#8ed8a5" : "#ffb357";
+        if (!on) {
+            el.effReduction.style.width = "0%";
+            el.effAtten.style.width = "0%";
+            el.effReductionVal.textContent = "OFF";
+            el.effAttenVal.textContent = "OFF";
+        }
     }
 
     // RMS history for amplification visualization
@@ -483,12 +530,14 @@
 
     function setApiState(ok, msg) {
         apiOnline = !!ok;
+        if (apiOnline) lastApiSuccessMs = Date.now();
         el.apiDot.className = ok ? "dot ok" : "dot err";
         el.apiStatus.textContent = "API: " + msg;
     }
 
     function setWsState(ok, msg) {
         wsOnline = !!ok;
+        if (wsOnline) lastWsSuccessMs = Date.now();
         el.wsDot.className = ok ? "dot ok" : "dot err";
         el.wsStatus.textContent = "Socket: " + msg;
     }
@@ -525,29 +574,110 @@
     function readConfigFromUI() {
         return {
             volume: Number(el.volume.value),
+            audio_blocksize: Number(el.audioBlocksize.value),
+            block_mode: blockMode,
+            bypass_all: el.bypassAll.checked,
             noise_reduction: el.nr.checked,
             noise_reduction_strength: Number(el.nrStrength.value),
             nr_band_low_hz: Number(el.nrBandLow.value),
             nr_band_high_hz: Number(el.nrBandHigh.value),
             nr_cepstral_smoothing: el.nrCeps.checked,
             nr_attack_release_split: el.nrAr.checked,
-            nr_wind_mode: el.nrWind.checked,
-            nr_wind_sensitivity: Number(el.nrWindSens.value),
             compression_strength: Number(el.comp.value),
-            aec_enabled: el.aecEnabled.checked,
-            aec_strength: Number(el.aecStrength.value),
-            aec_delay_blocks: Number(el.aecDelay.value),
-            near_end_suppression_mode: el.nearEndMode.checked,
-            near_end_suppression_strength: Number(el.nearEndStrength.value),
+            eq_enabled: el.eqEnabled.checked,
+            eq_bass_db: Number(el.eqBass.value),
+            eq_presence_db: Number(el.eqPresence.value),
+            eq_treble_db: Number(el.eqTreble.value),
             stt_input_gain: Number(el.sttGain.value),
             stt_enabled: sttEnabled
         };
+    }
+
+    function syncBlocksizeControls(rawValue) {
+        const value = Math.max(32, Math.min(2048, Math.round(Number(rawValue) / 32) * 32));
+        el.audioBlocksize.value = String(value);
+        el.audioBlocksizeVal.textContent = String(value);
+        if (el.audioBlocksizeChoice) {
+            el.audioBlocksizeChoice.value = String(value);
+        }
+        updateLatencyDisplay();
+    }
+
+    function updateBlockModeUiState() {
+        const selectedColor = "#88aaff";
+        const normalColor = "#4a7aaa";
+        const selectedFill = "#3d74a8";
+        const normalFill = "#2a4a6a";
+        const setButtonState = (button, selected) => {
+            button.style.borderColor = selected ? selectedColor : normalColor;
+            button.style.background = selected ? selectedFill : normalFill;
+            button.style.boxShadow = selected ? "0 0 0 1px rgba(136, 170, 255, 0.18) inset" : "none";
+            button.setAttribute("aria-pressed", selected ? "true" : "false");
+        };
+
+        setButtonState(el.blockModeLow, blockMode === "low");
+        setButtonState(el.blockModeBalanced, blockMode === "balanced");
+        setButtonState(el.blockModeStable, blockMode === "stable");
+        setButtonState(el.blockModeCustom, blockMode === "custom");
+
+        const custom = blockMode === "custom";
+        el.audioBlocksize.disabled = !custom;
+        el.audioBlocksizeChoice.disabled = !custom;
+        el.audioBlocksize.style.opacity = custom ? "1" : "0.7";
+        el.audioBlocksizeChoice.style.opacity = custom ? "1" : "0.7";
+
+        if (custom) {
+            el.blockModeHint.textContent = "Custom mode: self-setting with slider or dropdown";
+        } else if (blockMode === "low") {
+            el.blockModeHint.textContent = "Low Latency mode: block size set to 128";
+        } else if (blockMode === "balanced") {
+            el.blockModeHint.textContent = "Balanced mode: block size set to 256";
+        } else {
+            el.blockModeHint.textContent = "Stable mode: block size set to 512";
+        }
+    }
+
+    function applyBlockMode(mode) {
+        blockMode = mode;
+        if (mode === "low") {
+            syncBlocksizeControls(128);
+            sendConfigDebounced();
+        } else if (mode === "balanced") {
+            syncBlocksizeControls(256);
+            sendConfigDebounced();
+        } else if (mode === "stable") {
+            syncBlocksizeControls(512);
+            sendConfigDebounced();
+        } else {
+            sendConfigDebounced();
+        }
+        updateBlockModeUiState();
     }
 
     function applyConfigToUI(cfg) {
         if (typeof cfg.volume === "number") {
             el.volume.value = cfg.volume;
             el.volVal.textContent = cfg.volume.toFixed(2);
+        }
+        if (typeof cfg.audio_blocksize === "number") {
+            syncBlocksizeControls(cfg.audio_blocksize);
+        }
+        if (typeof cfg.block_mode === "string") {
+            const mode = cfg.block_mode;
+            if (mode === "low" || mode === "balanced" || mode === "stable" || mode === "custom") {
+                blockMode = mode;
+            }
+        } else if (typeof cfg.audio_blocksize === "number") {
+            const v = Number(cfg.audio_blocksize);
+            if (v === 128) blockMode = "low";
+            else if (v === 256) blockMode = "balanced";
+            else if (v === 512) blockMode = "stable";
+            else blockMode = "custom";
+        }
+        updateBlockModeUiState();
+        if (typeof cfg.bypass_all === "boolean") {
+            el.bypassAll.checked = cfg.bypass_all;
+            updateBypassUiState();
         }
         if (typeof cfg.noise_reduction === "boolean") el.nr.checked = cfg.noise_reduction;
         if (typeof cfg.noise_reduction_strength === "number") {
@@ -564,45 +694,20 @@
         }
         if (typeof cfg.nr_cepstral_smoothing === "boolean") el.nrCeps.checked = cfg.nr_cepstral_smoothing;
         if (typeof cfg.nr_attack_release_split === "boolean") el.nrAr.checked = cfg.nr_attack_release_split;
-        if (typeof cfg.nr_wind_mode === "boolean") el.nrWind.checked = cfg.nr_wind_mode;
-        if (typeof cfg.nr_wind_sensitivity === "number") {
-            el.nrWindSens.value = cfg.nr_wind_sensitivity;
-            el.nrWindSensVal.textContent = cfg.nr_wind_sensitivity.toFixed(2);
-        }
         if (typeof cfg.compression_strength === "number") {
             el.comp.value = cfg.compression_strength;
             el.compVal.textContent = cfg.compression_strength.toFixed(1);
-        }
-        if (typeof cfg.aec_enabled === "boolean") {
-            el.aecEnabled.checked = cfg.aec_enabled;
-        } else if (typeof cfg.feedback_cancellation === "boolean") {
-            el.aecEnabled.checked = cfg.feedback_cancellation;
-        }
-        if (typeof cfg.aec_strength === "number") {
-            el.aecStrength.value = cfg.aec_strength;
-            el.aecStrengthVal.textContent = cfg.aec_strength.toFixed(1);
-        }
-        if (typeof cfg.aec_delay_blocks === "number") {
-            el.aecDelay.value = cfg.aec_delay_blocks;
-            el.aecDelayVal.textContent = String(cfg.aec_delay_blocks);
-        }
-        if (typeof cfg.near_end_suppression_mode === "boolean") {
-            el.nearEndMode.checked = cfg.near_end_suppression_mode;
-        }
-        if (typeof cfg.near_end_suppression_strength === "number") {
-            el.nearEndStrength.value = cfg.near_end_suppression_strength;
-            el.nearEndStrengthVal.textContent = cfg.near_end_suppression_strength.toFixed(2);
         }
         if (typeof cfg.stt_input_gain === "number") {
             el.sttGain.value = cfg.stt_input_gain;
             el.sttGainVal.textContent = cfg.stt_input_gain.toFixed(1) + "x";
             // Highlight matching preset
             const gain = cfg.stt_input_gain;
-            if (gain >= 3.5) {
+            if (gain >= 1.8) {
                 el.sttPresetQuiet.style.borderColor = "#88aaff";
                 el.sttPresetNormal.style.borderColor = "#4a7aaa";
                 el.sttPresetLoud.style.borderColor = "#4a7aaa";
-            } else if (gain <= 1.3) {
+            } else if (gain <= 1.0) {
                 el.sttPresetQuiet.style.borderColor = "#4a7aaa";
                 el.sttPresetNormal.style.borderColor = "#4a7aaa";
                 el.sttPresetLoud.style.borderColor = "#88aaff";
@@ -612,7 +717,23 @@
                 el.sttPresetLoud.style.borderColor = "#4a7aaa";
             }
         }
+        if (typeof cfg.eq_enabled === "boolean") {
+            el.eqEnabled.checked = cfg.eq_enabled;
+        }
+        if (typeof cfg.eq_bass_db === "number") {
+            el.eqBass.value = cfg.eq_bass_db;
+            el.eqBassVal.textContent = cfg.eq_bass_db.toFixed(1);
+        }
+        if (typeof cfg.eq_presence_db === "number") {
+            el.eqPresence.value = cfg.eq_presence_db;
+            el.eqPresenceVal.textContent = cfg.eq_presence_db.toFixed(1);
+        }
+        if (typeof cfg.eq_treble_db === "number") {
+            el.eqTreble.value = cfg.eq_treble_db;
+            el.eqTrebleVal.textContent = cfg.eq_treble_db.toFixed(1);
+        }
         if (typeof cfg.stt_enabled === "boolean") sttEnabled = cfg.stt_enabled;
+        updateNoiseFilterUiState();
         refreshSttToggleButton();
     }
 
@@ -654,7 +775,48 @@
         el.volVal.textContent = Number(el.volume.value).toFixed(2);
         sendConfigDebounced();
     });
-    el.nr.addEventListener("change", sendConfigDebounced);
+    el.audioBlocksize.addEventListener("input", () => {
+        blockMode = "custom";
+        syncBlocksizeControls(el.audioBlocksize.value);
+        updateBlockModeUiState();
+        sendConfigDebounced();
+    });
+    el.audioBlocksizeChoice.addEventListener("change", () => {
+        blockMode = "custom";
+        syncBlocksizeControls(el.audioBlocksizeChoice.value);
+        updateBlockModeUiState();
+        sendConfigDebounced();
+    });
+    el.blockModeLow.addEventListener("click", () => applyBlockMode("low"));
+    el.blockModeBalanced.addEventListener("click", () => applyBlockMode("balanced"));
+    el.blockModeStable.addEventListener("click", () => applyBlockMode("stable"));
+    el.blockModeCustom.addEventListener("click", () => applyBlockMode("custom"));
+    el.bypassAll.addEventListener("change", () => {
+        updateBypassUiState();
+        sendConfigDebounced();
+    });
+    function updateLatencyDisplay() {
+        const blockSize = Number(el.audioBlocksize.value);
+        const sampleRate = 16000;
+        const bufferLatencyMs = (blockSize / sampleRate) * 1000;
+        const ioLatencyMs = 20; // Estimated audio I/O latency
+        const totalLatencyMs = bufferLatencyMs + ioLatencyMs;
+        el.latencyDisplay.textContent = "Estimated latency: ~" + Math.round(totalLatencyMs) + "ms (block: " + Math.round(bufferLatencyMs) + "ms + I/O: " + ioLatencyMs + "ms)";
+    }
+    function updateBypassUiState() {
+        const bypass = !!el.bypassAll.checked;
+        if (bypass) {
+            el.latencyDisplay.style.color = "#00ff00";
+            el.latencyDisplay.textContent = "🚀 BYPASS ACTIVE: Direct passthrough (~25ms latency only)";
+        } else {
+            updateLatencyDisplay();
+            el.latencyDisplay.style.color = "#ffd700";
+        }
+    }
+    el.nr.addEventListener("change", () => {
+        updateNoiseFilterUiState();
+        sendConfigDebounced();
+    });
     el.nrStrength.addEventListener("input", () => {
         el.nrStrengthVal.textContent = Number(el.nrStrength.value).toFixed(1);
         sendConfigDebounced();
@@ -684,38 +846,19 @@
     });
     el.nrCeps.addEventListener("change", sendConfigDebounced);
     el.nrAr.addEventListener("change", sendConfigDebounced);
-    el.nrWind.addEventListener("change", sendConfigDebounced);
-    el.nrWindSens.addEventListener("input", () => {
-        el.nrWindSensVal.textContent = Number(el.nrWindSens.value).toFixed(2);
-        sendConfigDebounced();
-    });
     el.comp.addEventListener("input", () => {
         el.compVal.textContent = Number(el.comp.value).toFixed(1);
-        sendConfigDebounced();
-    });
-    el.aecEnabled.addEventListener("change", sendConfigDebounced);
-    el.aecStrength.addEventListener("input", () => {
-        el.aecStrengthVal.textContent = Number(el.aecStrength.value).toFixed(1);
-        sendConfigDebounced();
-    });
-    el.aecDelay.addEventListener("input", () => {
-        el.aecDelayVal.textContent = String(Math.round(Number(el.aecDelay.value)));
-        sendConfigDebounced();
-    });
-    el.nearEndMode.addEventListener("change", sendConfigDebounced);
-    el.nearEndStrength.addEventListener("input", () => {
-        el.nearEndStrengthVal.textContent = Number(el.nearEndStrength.value).toFixed(2);
         sendConfigDebounced();
     });
     el.sttGain.addEventListener("input", () => {
         const gain = Number(el.sttGain.value);
         el.sttGainVal.textContent = gain.toFixed(1) + "x";
         // Update preset highlighting
-        if (gain >= 3.5) {
+        if (gain >= 1.8) {
             el.sttPresetQuiet.style.borderColor = "#88aaff";
             el.sttPresetNormal.style.borderColor = "#4a7aaa";
             el.sttPresetLoud.style.borderColor = "#4a7aaa";
-        } else if (gain <= 1.3) {
+        } else if (gain <= 1.0) {
             el.sttPresetQuiet.style.borderColor = "#4a7aaa";
             el.sttPresetNormal.style.borderColor = "#4a7aaa";
             el.sttPresetLoud.style.borderColor = "#88aaff";
@@ -732,11 +875,24 @@
         await sendConfigDebounced();
         updateSttStatusFromLiveness();
     });
+    el.eqEnabled.addEventListener("change", sendConfigDebounced);
+    el.eqBass.addEventListener("input", () => {
+        el.eqBassVal.textContent = Number(el.eqBass.value).toFixed(1);
+        sendConfigDebounced();
+    });
+    el.eqPresence.addEventListener("input", () => {
+        el.eqPresenceVal.textContent = Number(el.eqPresence.value).toFixed(1);
+        sendConfigDebounced();
+    });
+    el.eqTreble.addEventListener("input", () => {
+        el.eqTrebleVal.textContent = Number(el.eqTreble.value).toFixed(1);
+        sendConfigDebounced();
+    });
 
     // STT Sensitivity Presets
     el.sttPresetQuiet.addEventListener("click", async () => {
-        el.sttGain.value = 4.0;
-        el.sttGainVal.textContent = "4.0x";
+        el.sttGain.value = 1.7;
+        el.sttGainVal.textContent = "1.7x";
         el.sttPresetQuiet.style.borderColor = "#88aaff";
         el.sttPresetNormal.style.borderColor = "#4a7aaa";
         el.sttPresetLoud.style.borderColor = "#4a7aaa";
@@ -744,8 +900,8 @@
     });
 
     el.sttPresetNormal.addEventListener("click", async () => {
-        el.sttGain.value = 2.0;
-        el.sttGainVal.textContent = "2.0x";
+        el.sttGain.value = 1.1;
+        el.sttGainVal.textContent = "1.1x";
         el.sttPresetQuiet.style.borderColor = "#4a7aaa";
         el.sttPresetNormal.style.borderColor = "#88aaff";
         el.sttPresetLoud.style.borderColor = "#4a7aaa";
@@ -753,8 +909,8 @@
     });
 
     el.sttPresetLoud.addEventListener("click", async () => {
-        el.sttGain.value = 1.0;
-        el.sttGainVal.textContent = "1.0x";
+        el.sttGain.value = 0.8;
+        el.sttGainVal.textContent = "0.8x";
         el.sttPresetQuiet.style.borderColor = "#4a7aaa";
         el.sttPresetNormal.style.borderColor = "#4a7aaa";
         el.sttPresetLoud.style.borderColor = "#88aaff";
@@ -768,45 +924,44 @@
 
     el.wirelessPreset.addEventListener("click", async () => {
         applyConfigToUI({
-            aec_enabled: true,
-            aec_strength: 2.2,
-            aec_delay_blocks: 8,
-            near_end_suppression_mode: true,
-            near_end_suppression_strength: 0.75,
-            stt_input_gain: 1.8,
+            stt_input_gain: 1.3,
             noise_reduction: true,
-            noise_reduction_strength: 2.0,
+            noise_reduction_strength: 1.3,
             nr_band_low_hz: 200,
             nr_band_high_hz: 5000,
-            volume: 0.65,
+            eq_enabled: true,
+            eq_bass_db: -3.0,
+            eq_presence_db: 3.5,
+            eq_treble_db: 1.0,
+            volume: 0.55,
         });
         await sendConfigDebounced();
     });
 
     el.reset.addEventListener("click", async () => {
         applyConfigToUI({
-            volume: 0.7,
+            volume: 0.55,
+            audio_blocksize: 512,
+            block_mode: "custom",
             noise_reduction: true,
-            noise_reduction_strength: 1.4,
+            noise_reduction_strength: 1.1,
             nr_band_low_hz: 120,
             nr_band_high_hz: 6000,
             nr_cepstral_smoothing: true,
             nr_attack_release_split: true,
-            nr_wind_mode: false,
-            nr_wind_sensitivity: 0.6,
             compression_strength: 1.0,
-            aec_enabled: true,
-            aec_strength: 1.2,
-            aec_delay_blocks: 4,
-            near_end_suppression_mode: false,
-            near_end_suppression_strength: 0.6,
-            stt_input_gain: 1.0,
+            eq_enabled: true,
+            eq_bass_db: -2.0,
+            eq_presence_db: 3.0,
+            eq_treble_db: 1.5,
+            stt_input_gain: 1.1,
             stt_enabled: true
         });
         await sendConfigDebounced();
     });
 
     socket.on("connect", () => {
+        lastWsSuccessMs = Date.now();
         setWsState(true, "connected");
         updateSttStatusFromLiveness();
     });
@@ -820,6 +975,7 @@
     });
 
     socket.on("meter", (data) => {
+        lastWsSuccessMs = Date.now();
         const rawLeft = rmsToPercent(data.left);
         const rawRight = rmsToPercent(data.right);
 
@@ -860,6 +1016,12 @@
     let lastTranscriptNode = null;
     let lastTranscriptSeq = 0;
 
+    function clearTranscriptBox() {
+        el.transcription.textContent = "Waiting for speech...";
+        lastTranscriptText = "";
+        lastTranscriptNode = null;
+    }
+
     function renderTranscript(text) {
         text = text ? String(text).trim() : "";
         if (!text) return;
@@ -893,7 +1055,12 @@
         el.transcription.scrollTop = el.transcription.scrollHeight;
     }
 
+    el.clearTranscription.addEventListener("click", () => {
+        clearTranscriptBox();
+    });
+
     socket.on("transcription", (data) => {
+        lastWsSuccessMs = Date.now();
         lastSttUpdateMs = Date.now();
         renderTranscript(data && data.text);
         updateSttStatusFromLiveness();
@@ -930,6 +1097,23 @@
     }
 
     socket.on("quality", (q) => {
+        lastWsSuccessMs = Date.now();
+        const nrActive = !!(q && q.nr_active);
+        el.effState.textContent = nrActive ? "Noise filter: ON" : "Noise filter: OFF";
+        el.effState.style.color = nrActive ? "#8ed8a5" : "#ffb357";
+
+        if (!nrActive) {
+            el.effReduction.style.width = "0%";
+            el.effAtten.style.width = "0%";
+            el.effReductionVal.textContent = "OFF";
+            el.effAttenVal.textContent = "OFF";
+            const loOff = Math.round(Number(q && q.band_low_hz) || 0);
+            const hiOff = Math.round(Number(q && q.band_high_hz) || 0);
+            el.effBandLabel.textContent = "Band: " + loOff + " - " + hiOff + " Hz (inactive)";
+            drawSpectrum(q && q.spectrum_in, q && q.spectrum_out);
+            return;
+        }
+
         const red = Number(q && q.reduction_db) || 0;
         const att = -(Number(q && q.attenuation_db) || 0);
         const redPct = Math.max(0, Math.min(100, red / 24 * 100));
@@ -958,6 +1142,8 @@
 
     // Fallback: poll latest transcription in case socket events are missed.
     setInterval(async () => {
+        // Skip polling when socket stream is healthy.
+        if (wsOnline && (Date.now() - lastWsSuccessMs) < 5000) return;
         try {
             const res = await fetch("/api/transcription/latest");
             if (!res.ok) {
@@ -977,7 +1163,22 @@
             setApiState(false, "transcription poll failed");
             updateSttStatusFromLiveness();
         }
-    }, 600);
+    }, 1200);
+
+    // Force stale statuses offline if no successful API/socket activity is observed.
+    setInterval(() => {
+        const now = Date.now();
+        // Keep API timeout threshold above config polling interval to avoid false alarms.
+        if (apiOnline && lastApiSuccessMs && now - lastApiSuccessMs > 12000) {
+            setApiState(false, "timeout");
+        }
+        // Socket.IO long-polling can be silent for tens of seconds between packets.
+        // Use a wider timeout window to avoid false "timeout" status.
+        if (wsOnline && lastWsSuccessMs && now - lastWsSuccessMs > 40000) {
+            setWsState(false, "timeout");
+        }
+        updateSttStatusFromLiveness();
+    }, 800);
 
     setInterval(() => {
         updateSttStatusFromLiveness();
@@ -1000,9 +1201,13 @@
             setApiState(false, "config sync failed");
             updateSttStatusFromLiveness();
         }
-    }, 2500);
+    }, 4000);
 
     refreshSttToggleButton();
+    updateNoiseFilterUiState();
+    updateBlockModeUiState();
+    updateLatencyDisplay();
+    updateBypassUiState();
     loadConfig();
 </script>
 </body>
