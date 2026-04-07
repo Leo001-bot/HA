@@ -33,8 +33,19 @@ runtime_diag = {
 
 
 def bridge_transcription_forwarder(cpp_bridge):
-    """Forward STT lines from the C++ bridge into the web UI transcription queue."""
+    """Forward C++ bridge telemetry and STT lines into existing web UI queues."""
     last_forwarded = ""
+
+    def parse_kv(line, prefix):
+        payload = {}
+        body = line[len(prefix):].strip()
+        for token in body.split():
+            if '=' not in token:
+                continue
+            k, v = token.split('=', 1)
+            payload[k.strip()] = v.strip()
+        return payload
+
     while cpp_bridge is not None and cpp_bridge.running:
         try:
             line = cpp_bridge.output_queue.get(timeout=0.2)
@@ -42,6 +53,37 @@ def bridge_transcription_forwarder(cpp_bridge):
             continue
 
         if not line:
+            continue
+
+        if line.startswith("[METER]"):
+            kv = parse_kv(line, "[METER]")
+            left = float(kv.get('left', 0.0) or 0.0)
+            right = float(kv.get('right', left) or left)
+            try:
+                meter_queue.put_nowait((left, right))
+            except queue.Full:
+                pass
+            runtime_diag['bridge']['latest_status'] = line
+            continue
+
+        if line.startswith("[QUALITY]"):
+            kv = parse_kv(line, "[QUALITY]")
+            payload = {
+                'in_rms': float(kv.get('in_rms', 0.0) or 0.0),
+                'out_rms': float(kv.get('out_rms', 0.0) or 0.0),
+                'attenuation_db': float(kv.get('attenuation_db', 0.0) or 0.0),
+                'reduction_db': float(kv.get('reduction_db', 0.0) or 0.0),
+                'band_low_hz': float(kv.get('band_low_hz', 120.0) or 120.0),
+                'band_high_hz': float(kv.get('band_high_hz', 6000.0) or 6000.0),
+                'nr_active': bool(int(float(kv.get('nr_active', 0.0) or 0.0))),
+                'spectrum_in': [0.0] * 64,
+                'spectrum_out': [0.0] * 64,
+            }
+            try:
+                quality_queue.put_nowait(payload)
+            except queue.Full:
+                pass
+            runtime_diag['bridge']['latest_status'] = line
             continue
 
         if line.startswith("[STT]"):

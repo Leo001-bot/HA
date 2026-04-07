@@ -50,6 +50,11 @@ struct CallbackContext {
     std::mutex stt_mutex;
     std::condition_variable stt_cv;
     std::queue<std::vector<float>> stt_queue;
+    std::atomic<float> in_rms{0.0f};
+    std::atomic<float> out_rms{0.0f};
+    std::atomic<float> left_rms{0.0f};
+    std::atomic<float> right_rms{0.0f};
+    std::atomic<float> attenuation_db{0.0f};
 };
 
 struct ModelBundle {
@@ -196,11 +201,15 @@ int audio_callback(const void* input,
         return paContinue;
     }
 
+    double in_energy = 0.0;
+    double out_energy = 0.0;
+
     for (unsigned long i = 0; i < frame_count; ++i) {
         float x = 0.0f;
         if (in) {
             x = in[i * kInputChannels];
         }
+        in_energy += static_cast<double>(x) * static_cast<double>(x);
 
         float y = x;
         if (!ctx->cfg->bypass_all.load()) {
@@ -211,8 +220,20 @@ int audio_callback(const void* input,
         y *= clampf(ctx->cfg->volume.load(), 0.0f, 6.0f);
         y = soft_clip(y);
         y = clampf(y, -0.95f, 0.95f);
+        out_energy += static_cast<double>(y) * static_cast<double>(y);
 
         out[i * kOutputChannels] = y;
+    }
+
+    if (frame_count > 0) {
+        const float in_rms = static_cast<float>(std::sqrt(in_energy / static_cast<double>(frame_count)));
+        const float out_rms = static_cast<float>(std::sqrt(out_energy / static_cast<double>(frame_count)));
+        const float att_db = 20.0f * std::log10((out_rms + 1e-9f) / (in_rms + 1e-9f));
+        ctx->in_rms.store(in_rms);
+        ctx->out_rms.store(out_rms);
+        ctx->left_rms.store(in_rms);
+        ctx->right_rms.store(in_rms);
+        ctx->attenuation_db.store(att_db);
     }
 
     if (in && frame_count > 0) {
@@ -459,7 +480,29 @@ int main(int argc, char** argv) {
     std::thread controls(control_loop, std::ref(cfg));
     std::thread stt_worker(stt_loop, std::ref(ctx), model_root);
 
+    auto next_telemetry_emit = std::chrono::steady_clock::now();
+
     while (g_running.load() && Pa_IsStreamActive(stream) == 1) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= next_telemetry_emit) {
+            const float meter_l = ctx.left_rms.load();
+            const float meter_r = ctx.right_rms.load();
+            const float in_rms = ctx.in_rms.load();
+            const float out_rms = ctx.out_rms.load();
+            const float att_db = ctx.attenuation_db.load();
+
+            std::cout << "[METER] left=" << meter_l << " right=" << meter_r << std::endl;
+            std::cout << "[QUALITY] in_rms=" << in_rms
+                      << " out_rms=" << out_rms
+                      << " attenuation_db=" << att_db
+                      << " reduction_db=0.0"
+                      << " band_low_hz=120"
+                      << " band_high_hz=6000"
+                      << " nr_active=0"
+                      << std::endl;
+
+            next_telemetry_emit = now + std::chrono::milliseconds(160);
+        }
         Pa_Sleep(50);
     }
 
