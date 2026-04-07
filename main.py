@@ -46,6 +46,20 @@ def bridge_transcription_forwarder(cpp_bridge, config_obj=None):
             payload[k.strip()] = v.strip()
         return payload
 
+    def parse_series(text):
+        if not text:
+            return []
+        values = []
+        for item in text.split(','):
+            item = item.strip()
+            if not item:
+                continue
+            try:
+                values.append(float(item))
+            except ValueError:
+                continue
+        return values
+
     while cpp_bridge is not None and cpp_bridge.running:
         try:
             line = cpp_bridge.output_queue.get(timeout=0.2)
@@ -73,6 +87,8 @@ def bridge_transcription_forwarder(cpp_bridge, config_obj=None):
             out_rms = float(kv.get('out_rms', 0.0) or 0.0)
             attenuation_db = float(kv.get('attenuation_db', 0.0) or 0.0)
             reduction_db = float(kv.get('reduction_db', 0.0) or 0.0)
+            spectrum_in = parse_series(kv.get('spectrum_in', ''))
+            spectrum_out = parse_series(kv.get('spectrum_out', ''))
 
             # Bridge telemetry currently provides limited DSP internals.
             # Keep the UI informative by estimating reduction when NR is enabled.
@@ -81,6 +97,10 @@ def bridge_transcription_forwarder(cpp_bridge, config_obj=None):
 
             in_norm = float(np.clip(in_rms / 0.12, 0.0, 1.0))
             out_norm = float(np.clip(out_rms / 0.12, 0.0, 1.0))
+            if not spectrum_in:
+                spectrum_in = [in_norm] * 64
+            if not spectrum_out:
+                spectrum_out = [out_norm] * len(spectrum_in)
             payload = {
                 'in_rms': in_rms,
                 'out_rms': out_rms,
@@ -89,9 +109,8 @@ def bridge_transcription_forwarder(cpp_bridge, config_obj=None):
                 'band_low_hz': float(kv.get('band_low_hz', 120.0) or 120.0),
                 'band_high_hz': float(kv.get('band_high_hz', 6000.0) or 6000.0),
                 'nr_active': nr_enabled,
-                # Provide stable non-empty curves so spectrum and amplification graphs animate.
-                'spectrum_in': [in_norm] * 64,
-                'spectrum_out': [out_norm] * 64,
+                'spectrum_in': spectrum_in,
+                'spectrum_out': spectrum_out,
             }
             try:
                 quality_queue.put_nowait(payload)

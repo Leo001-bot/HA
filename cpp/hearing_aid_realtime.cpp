@@ -1,6 +1,7 @@
 #include <portaudio.h>
 
 #include <atomic>
+#include <algorithm>
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
@@ -9,9 +10,11 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <iomanip>
 #include <mutex>
 #include <optional>
 #include <queue>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,7 +58,77 @@ struct CallbackContext {
     std::atomic<float> left_rms{0.0f};
     std::atomic<float> right_rms{0.0f};
     std::atomic<float> attenuation_db{0.0f};
+    std::mutex telemetry_mutex;
+    std::vector<float> latest_in_chunk;
+    std::vector<float> latest_out_chunk;
 };
+
+std::vector<float> compute_spectrum_bins(const std::vector<float>& signal, int bins = 48) {
+    if (signal.empty() || bins <= 0) {
+        return {};
+    }
+
+    const int n = static_cast<int>(signal.size());
+    const double min_hz = 80.0;
+    const double max_hz = 6000.0;
+    const double nyquist = kSampleRate * 0.5;
+    const double max_used_hz = std::min(max_hz, nyquist - 1.0);
+
+    std::vector<float> spectrum(static_cast<size_t>(bins), 0.0f);
+    if (max_used_hz <= min_hz) {
+        return spectrum;
+    }
+
+    constexpr double kPi = 3.14159265358979323846;
+
+    for (int i = 0; i < bins; ++i) {
+        const double t = (bins == 1) ? 0.0 : static_cast<double>(i) / static_cast<double>(bins - 1);
+        const double target_hz = min_hz + (max_used_hz - min_hz) * t;
+        const int k = std::max(1, std::min(n / 2 - 1, static_cast<int>(std::lround((target_hz * n) / kSampleRate))));
+        const double omega = (2.0 * kPi * k) / static_cast<double>(n);
+        const double coeff = 2.0 * std::cos(omega);
+
+        double q0 = 0.0;
+        double q1 = 0.0;
+        double q2 = 0.0;
+        for (int j = 0; j < n; ++j) {
+            q0 = coeff * q1 - q2 + static_cast<double>(signal[static_cast<size_t>(j)]);
+            q2 = q1;
+            q1 = q0;
+        }
+        double power = q1 * q1 + q2 * q2 - coeff * q1 * q2;
+        if (!std::isfinite(power) || power < 0.0) {
+            power = 0.0;
+        }
+        spectrum[static_cast<size_t>(i)] = static_cast<float>(power);
+    }
+
+    float peak = 0.0f;
+    for (float v : spectrum) {
+        if (v > peak) {
+            peak = v;
+        }
+    }
+    if (peak > 1e-12f) {
+        for (float& v : spectrum) {
+            v = std::sqrt(v / peak);
+        }
+    }
+
+    return spectrum;
+}
+
+std::string join_csv(const std::vector<float>& values) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(4);
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i != 0) {
+            oss << ',';
+        }
+        oss << values[i];
+    }
+    return oss.str();
+}
 
 struct ModelBundle {
     std::string tokens;
@@ -234,6 +307,18 @@ int audio_callback(const void* input,
         ctx->left_rms.store(in_rms);
         ctx->right_rms.store(in_rms);
         ctx->attenuation_db.store(att_db);
+
+        std::vector<float> in_chunk(frame_count);
+        std::vector<float> out_chunk(frame_count);
+        for (unsigned long i = 0; i < frame_count; ++i) {
+            in_chunk[i] = in ? in[i * kInputChannels] : 0.0f;
+            out_chunk[i] = out[i * kOutputChannels];
+        }
+        {
+            std::lock_guard<std::mutex> lock(ctx->telemetry_mutex);
+            ctx->latest_in_chunk = std::move(in_chunk);
+            ctx->latest_out_chunk = std::move(out_chunk);
+        }
     }
 
     if (in && frame_count > 0) {
@@ -491,14 +576,36 @@ int main(int argc, char** argv) {
             const float out_rms = ctx.out_rms.load();
             const float att_db = ctx.attenuation_db.load();
 
+            std::vector<float> in_chunk;
+            std::vector<float> out_chunk;
+            {
+                std::lock_guard<std::mutex> lock(ctx.telemetry_mutex);
+                in_chunk = ctx.latest_in_chunk;
+                out_chunk = ctx.latest_out_chunk;
+            }
+
+            const std::vector<float> spectrum_in = compute_spectrum_bins(in_chunk, 48);
+            const std::vector<float> spectrum_out = compute_spectrum_bins(out_chunk, 48);
+
+            double in_pow = 0.0;
+            double out_pow = 0.0;
+            const size_t n = std::min(spectrum_in.size(), spectrum_out.size());
+            for (size_t i = 0; i < n; ++i) {
+                in_pow += static_cast<double>(spectrum_in[i]) * static_cast<double>(spectrum_in[i]);
+                out_pow += static_cast<double>(spectrum_out[i]) * static_cast<double>(spectrum_out[i]);
+            }
+            const float reduction_db = static_cast<float>(10.0 * std::log10((in_pow + 1e-9) / (out_pow + 1e-9)));
+
             std::cout << "[METER] left=" << meter_l << " right=" << meter_r << std::endl;
             std::cout << "[QUALITY] in_rms=" << in_rms
                       << " out_rms=" << out_rms
                       << " attenuation_db=" << att_db
-                      << " reduction_db=0.0"
+                      << " reduction_db=" << reduction_db
                       << " band_low_hz=120"
                       << " band_high_hz=6000"
                       << " nr_active=0"
+                      << " spectrum_in=" << join_csv(spectrum_in)
+                      << " spectrum_out=" << join_csv(spectrum_out)
                       << std::endl;
 
             next_telemetry_emit = now + std::chrono::milliseconds(160);
