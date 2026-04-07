@@ -274,12 +274,12 @@ void stt_loop(CallbackContext& ctx, const std::filesystem::path& model_root) {
     config.rule2_min_trailing_silence = 0.35f;
     config.rule3_min_utterance_length = 8.0f;
 
-    SherpaOnnxOnlineRecognizer* recognizer = SherpaOnnxCreateOnlineRecognizer(&config);
+    auto* recognizer = SherpaOnnxCreateOnlineRecognizer(&config);
     if (!recognizer) {
         std::cerr << "STT disabled: failed to create sherpa-onnx recognizer" << std::endl;
         return;
     }
-    SherpaOnnxOnlineStream* stream = SherpaOnnxCreateOnlineStream(recognizer);
+    auto* stream = SherpaOnnxCreateOnlineStream(recognizer);
     if (!stream) {
         std::cerr << "STT disabled: failed to create online stream" << std::endl;
         SherpaOnnxDestroyOnlineRecognizer(recognizer);
@@ -321,7 +321,7 @@ void stt_loop(CallbackContext& ctx, const std::filesystem::path& model_root) {
             SherpaOnnxDecodeOnlineStream(recognizer, stream);
         }
 
-        const SherpaOnnxOnlineRecognizerResult* result = SherpaOnnxGetOnlineStreamResult(recognizer, stream);
+        auto* result = SherpaOnnxGetOnlineStreamResult(recognizer, stream);
         if (result && result->text) {
             std::string text = result->text;
             if (!text.empty() && text != last_text) {
