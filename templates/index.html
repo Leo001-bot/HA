@@ -1092,8 +1092,9 @@
             specCtx.stroke();
         };
 
-        draw(inputArr, "#3ed37a");
+        // Draw output first so input (green) remains visible on top.
         draw(outputArr, "#77b3ff");
+        draw(inputArr, "#3ed37a");
     }
 
     socket.on("quality", (q) => {
