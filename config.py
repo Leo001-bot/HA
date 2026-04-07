@@ -9,7 +9,6 @@ class Config:
         self._active = {
             'volume': 0.55,
             'audio_blocksize': 512,
-            'block_mode': 'custom',
             'bypass_all': False,
             'noise_reduction': True,
             'noise_reduction_strength': 1.1,
@@ -25,7 +24,7 @@ class Config:
             'stt_enabled': True,
             'stt_input_gain': 1.1,
             'stt_sensitivity': 'normal',
-            'stt_model_root': 'models',
+            'stt_model_root': 'models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20',
         }
 
     def get(self, key):
@@ -81,10 +80,10 @@ class Config:
                 value = max(-12.0, min(12.0, value))
             if key == 'stt_model_root':
                 if value is None:
-                    value = 'models'
+                    value = 'models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20'
                 value = str(value).strip()
                 if not value or value.lower() == 'none':
-                    value = 'models'
+                    value = 'models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20'
             if key in ('noise_reduction', 'nr_cepstral_smoothing', 'nr_attack_release_split', 'stt_enabled', 'eq_enabled', 'bypass_all'):
                 value = bool(value)
 

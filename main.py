@@ -1,5 +1,7 @@
 import threading
 import time
+import os
+import platform
 import numpy as np
 import queue
 import traceback
@@ -8,7 +10,8 @@ from pathlib import Path
 from config import Config
 from audio_io import AudioIO
 from processing import NoiseReducer, Compressor, OutputLimiter, SpeechEQ
-from stt import StreamingSTT
+from stt import create_streaming_stt
+from cpp_bridge import CppRealtimeBridge
 from server import start_server
 
 
@@ -25,6 +28,8 @@ runtime_diag = {
     'audio_blocksize_in_use': 512,
     'processing_thread_alive': False,
     'processing_thread_error': '',
+    'bridge_mode': False,
+    'bridge': {},
 }
 
 
@@ -190,7 +195,8 @@ def audio_processing_thread(config_obj, audio_io):
 
         def _stt_init_worker(target_root):
             try:
-                stt_obj = StreamingSTT(model_root=target_root, sample_rate=16000)
+                stt_backend = os.environ.get("STT_BACKEND", "auto")
+                stt_obj = create_streaming_stt(model_root=target_root, sample_rate=16000, backend=stt_backend)
                 stt_obj.start()
                 stt_init_queue.put_nowait((True, stt_obj, target_root, ""))
             except Exception as init_err:
@@ -567,20 +573,42 @@ def audio_processing_thread(config_obj, audio_io):
 
 if __name__ == "__main__":
     audio = None
+    cpp_bridge = None
     try:
         cfg = Config()
-        # Prefer stereo capture/playback; AudioIO will clamp to device capabilities.
-        audio = AudioIO(samplerate=16000, blocksize=int(cfg.get('audio_blocksize') or 512), input_channels=2, output_channels=2)
-        audio.start()
-        proc_thread = threading.Thread(target=audio_processing_thread, args=(cfg, audio), daemon=True)
-        proc_thread.start()
+        use_cpp_bridge = str(os.environ.get('USE_CPP_BRIDGE', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
+        if use_cpp_bridge:
+            cpp_bridge = CppRealtimeBridge()
+            cpp_bridge.start()
+            runtime_diag['bridge_mode'] = True
+            runtime_diag['bridge'] = cpp_bridge.get_diagnostics()
+            print("C++ bridge mode enabled; Python audio pipeline is skipped.")
+        else:
+            runtime_diag['bridge_mode'] = False
+        is_linux_arm = platform.system().lower() == 'linux' and platform.machine().lower() in ('armv7l', 'aarch64', 'arm64')
+        input_channels = 1 if is_linux_arm else 2
+        output_channels = 1 if is_linux_arm else 2
+        blocksize = int(cfg.get('audio_blocksize') or 512)
+        if is_linux_arm and blocksize < 1024:
+            blocksize = 1024
+            cfg.set('audio_blocksize', blocksize)
+        if not use_cpp_bridge:
+            # Linux ARM defaults are conservative to avoid PortAudio/ALSA callback crashes.
+            audio = AudioIO(samplerate=16000, blocksize=blocksize, input_channels=input_channels, output_channels=output_channels)
+            audio.start()
+            proc_thread = threading.Thread(target=audio_processing_thread, args=(cfg, audio), daemon=True)
+            proc_thread.start()
+        else:
+            proc_thread = None
 
         def diagnostics_provider():
             payload = {
                 'audio': audio.get_stats() if audio is not None else {'running': False},
                 'runtime': dict(runtime_diag),
-                'processing_thread_alive': bool(proc_thread.is_alive()),
+                'processing_thread_alive': bool(proc_thread.is_alive()) if proc_thread is not None else False,
             }
+            if cpp_bridge is not None:
+                payload['bridge'] = cpp_bridge.get_diagnostics()
             return payload
 
         start_server(
@@ -597,6 +625,11 @@ if __name__ == "__main__":
         traceback.print_exc()
         raise
     finally:
+        if cpp_bridge is not None:
+            try:
+                cpp_bridge.stop()
+            except Exception:
+                pass
         if audio is not None:
             try:
                 audio.stop()

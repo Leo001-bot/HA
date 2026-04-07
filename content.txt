@@ -1,0 +1,23 @@
+hearing_aid_project/
+│
+├── main.py                 # [PYTHON] Orchestrator: starts all threads
+├── audio_io.py             # [PYTHON] Low‑latency audio I/O using sounddevice
+├── processing.py           # [PYTHON] Hearing aid algorithms (noise reduction, compressor, etc.)
+├── stt.py                  # [PYTHON] Real‑time STT backend management
+├── server.py               # [PYTHON] Flask web server with WebSocket for UI
+├── config.py               # [PYTHON] Shared configuration
+├── templates/              # [PYTHON] HTML templates for Flask
+│   └── index.html          # [PYTHON UI] http://127.0.0.1:5000
+├── run_python_app.bat      # [PYTHON] Windows launcher for Python app
+├── run_python_cpp_bridge.bat  # [PYTHON + C/C++] Launcher for Python server + C++ bridge mode
+├── cpp_bridge.py           # [PYTHON] Bridge controller for launching/monitoring C++ engine
+│
+├── cpp/                    # [C/C++] Native realtime implementation
+│   ├── CMakeLists.txt      # [C/C++] Build configuration
+│   └── hearing_aid_realtime.cpp  # [C/C++] Realtime audio + optional sherpa-onnx C API STT
+├── run_cpp_realtime_pi.sh  # [C/C++] Raspberry Pi build/run launcher
+│
+├── models/                 # [SHARED] Sherpa‑ONNX model files
+│   └── sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/
+│
+└── STACK_LABELS.md         # [DOC] Detailed Python vs C/C++ mapping

@@ -2,10 +2,205 @@ import queue
 import threading
 import os
 import time
+import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import numpy as np
-import sherpa_onnx
+try:
+    import sherpa_onnx
+except Exception:
+    sherpa_onnx = None
+
+
+def _choose_preferred_model(files, prefer_int8=True):
+    if not files:
+        return None
+
+    def score(path_obj: Path):
+        name = path_obj.name.lower()
+        s = 0
+        if ".int8" in name and prefer_int8:
+            s += 30
+        if ".int8" not in name and not prefer_int8:
+            s += 30
+        if "-left-" in name:
+            s += 5
+        s -= len(name) * 0.001
+        return s
+
+    return max(files, key=score)
+
+
+def _discover_transducer_bundle(model_root):
+    root = Path(model_root)
+    if not root.exists():
+        raise FileNotFoundError(f"Model directory not found: {root}")
+
+    tokens_candidates = sorted(root.rglob("tokens.txt"))
+    for tokens in tokens_candidates:
+        parent = tokens.parent
+        encoders = sorted(parent.glob("encoder*.onnx"))
+        decoders = sorted(parent.glob("decoder*.onnx"))
+        joiners = sorted(parent.glob("joiner*.onnx"))
+        if encoders and decoders and joiners:
+            return {
+                "tokens": str(tokens),
+                "encoder": str(_choose_preferred_model(encoders, prefer_int8=True)),
+                "decoder": str(_choose_preferred_model(decoders, prefer_int8=False)),
+                "joiner": str(_choose_preferred_model(joiners, prefer_int8=True)),
+            }
+
+    raise FileNotFoundError(
+        "No compatible transducer model files found. Expected: "
+        "encoder*.onnx + decoder*.onnx + joiner*.onnx + tokens.txt"
+    )
+
+
+class AlsaStreamingSTT:
+    """External STT backend using sherpa-onnx-alsa executable."""
+
+    def __init__(self, model_root="models", sample_rate=16000, binary=None):
+        self.sample_rate = int(sample_rate)
+        self.audio_queue = queue.Queue(maxsize=1)
+        self.text_queue = queue.Queue(maxsize=64)
+        self._running = False
+        self._reader_thread = None
+        self._proc = None
+        self._last_text = ""
+        self._binary = binary or os.environ.get("SHERPA_ONNX_ALSA_BIN", "sherpa-onnx-alsa")
+        self._bundle = _discover_transducer_bundle(model_root)
+        self._diag = {
+            "enabled": True,
+            "backend": "alsa",
+            "sample_rate": int(sample_rate),
+            "model_root": str(model_root),
+            "model_files": dict(self._bundle),
+            "partial_emits": 0,
+            "final_emits": 0,
+            "errors": 0,
+            "queue_drops": 0,
+            "last_error": "",
+            "last_text": "",
+        }
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+
+        cmd = [
+            self._binary,
+            f"--tokens={self._bundle['tokens']}",
+            f"--encoder={self._bundle['encoder']}",
+            f"--decoder={self._bundle['decoder']}",
+            f"--joiner={self._bundle['joiner']}",
+            f"--sample-rate={self.sample_rate}",
+        ]
+
+        self._proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+        self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader_thread.start()
+
+    def stop(self):
+        self._running = False
+        if self._proc is not None:
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=1.5)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+        self._proc = None
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=1.0)
+
+    def feed_audio(self, audio_data):
+        # External ALSA backend captures audio directly from ALSA input device.
+        _ = audio_data
+
+    def get_diagnostics(self):
+        d = dict(self._diag)
+        d["running"] = bool(self._running)
+        d["audio_queue_size"] = 0
+        d["text_queue_size"] = int(self.text_queue.qsize())
+        return d
+
+    def get_transcript(self, block=False, timeout=None):
+        try:
+            return self.text_queue.get(block=block, timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def _read_loop(self):
+        text_pattern = re.compile(r"result|text|transcript", re.IGNORECASE)
+        while self._running and self._proc is not None and self._proc.stdout is not None:
+            line = self._proc.stdout.readline()
+            if not line:
+                if self._proc.poll() is not None:
+                    break
+                time.sleep(0.02)
+                continue
+
+            msg = line.strip()
+            if not msg:
+                continue
+
+            # Prefer explicit transcript-like lines; otherwise still allow natural language lines.
+            lowered = msg.lower()
+            candidate = ""
+            if text_pattern.search(lowered):
+                candidate = msg.split(":", 1)[-1].strip()
+            elif any(ch.isalpha() for ch in msg) or any('\u4e00' <= ch <= '\u9fff' for ch in msg):
+                candidate = msg
+
+            if not candidate:
+                continue
+
+            if candidate == self._last_text:
+                continue
+            self._last_text = candidate
+            self._diag["partial_emits"] += 1
+            self._diag["last_text"] = candidate
+            try:
+                self.text_queue.put_nowait(candidate)
+            except queue.Full:
+                pass
+
+
+def create_streaming_stt(model_root="models", sample_rate=16000, backend="auto"):
+    """Create STT backend. backend: auto|python|alsa."""
+    requested = str(backend or "auto").strip().lower()
+    if requested not in ("auto", "python", "alsa"):
+        requested = "auto"
+
+    if requested in ("auto", "alsa"):
+        bin_name = os.environ.get("SHERPA_ONNX_ALSA_BIN", "sherpa-onnx-alsa")
+        bin_path = shutil.which(bin_name)
+        if os.name != "nt" and bin_path:
+            try:
+                return AlsaStreamingSTT(model_root=model_root, sample_rate=sample_rate, binary=bin_path)
+            except Exception:
+                if requested == "alsa":
+                    raise
+        elif requested == "alsa":
+            raise FileNotFoundError(
+                f"sherpa-onnx-alsa executable not found. Set SHERPA_ONNX_ALSA_BIN or install '{bin_name}'."
+            )
+
+    stt = StreamingSTT(model_root=model_root, sample_rate=sample_rate)
+    stt._diag["backend"] = "python"
+    return stt
 
 
 class StreamingSTT:
@@ -18,6 +213,10 @@ class StreamingSTT:
     )
 
     def __init__(self, model_path="", tokens_path="", sample_rate=16000, model_root="models"):
+        if sherpa_onnx is None:
+            raise RuntimeError(
+                "Python STT backend unavailable: sherpa_onnx is not installed or failed to import"
+            )
         self.sample_rate = sample_rate
         self.audio_queue = queue.Queue(maxsize=32)
         self.text_queue = queue.Queue(maxsize=64)

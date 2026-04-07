@@ -1,4 +1,6 @@
 import queue
+import os
+import platform
 
 import numpy as np
 import sounddevice as sd
@@ -28,6 +30,14 @@ class AudioIO:
         self._passthrough_enabled = False
         self._passthrough_gain = 1.0
         self._latest_passthrough = None
+        prefer_split_env = str(os.environ.get("AUDIO_PREFER_SPLIT", "auto")).strip().lower()
+        is_linux_arm = platform.system().lower() == "linux" and platform.machine().lower() in ("armv7l", "aarch64", "arm64")
+        if prefer_split_env == "1" or prefer_split_env == "true" or prefer_split_env == "yes":
+            self._prefer_split_streams = True
+        elif prefer_split_env == "0" or prefer_split_env == "false" or prefer_split_env == "no":
+            self._prefer_split_streams = False
+        else:
+            self._prefer_split_streams = is_linux_arm
         self._stats = {
             "input_callbacks": 0,
             "output_callbacks": 0,
@@ -245,6 +255,11 @@ class AudioIO:
         self._running = True
         self.input_only = False
         self._resolve_channels()
+
+        if self._prefer_split_streams:
+            print("Preferring split I/O mode for stability")
+            if self._start_split_streams():
+                return
 
         # Some Windows MME drivers fail or hang on asymmetric duplex (e.g. 1-in/2-out).
         # Prefer split streams so mic input and speaker output can both remain available.
