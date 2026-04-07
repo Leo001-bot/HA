@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cmath>
 #include <csignal>
+#include <cstdlib>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
@@ -162,6 +163,23 @@ float apply_highpass(float x, DspState& st, const RuntimeConfig& cfg) {
     st.hp_prev_x = x;
     st.hp_prev_y = y;
     return y;
+}
+
+std::optional<PaDeviceIndex> parse_device_index_env(const char* name) {
+    const char* value = std::getenv(name);
+    if (!value || !*value) {
+        return std::nullopt;
+    }
+
+    try {
+        long parsed = std::stol(value);
+        if (parsed < 0) {
+            return std::nullopt;
+        }
+        return static_cast<PaDeviceIndex>(parsed);
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 
 int audio_callback(const void* input,
@@ -372,14 +390,30 @@ int main(int argc, char** argv) {
     PaStreamParameters in_params{};
     PaStreamParameters out_params{};
 
-    in_params.device = Pa_GetDefaultInputDevice();
-    out_params.device = Pa_GetDefaultOutputDevice();
+    const auto input_device_override = parse_device_index_env("PA_INPUT_DEVICE");
+    const auto output_device_override = parse_device_index_env("PA_OUTPUT_DEVICE");
+
+    in_params.device = input_device_override.has_value()
+                           ? *input_device_override
+                           : Pa_GetDefaultInputDevice();
+    out_params.device = output_device_override.has_value()
+                            ? *output_device_override
+                            : Pa_GetDefaultOutputDevice();
 
     if (in_params.device == paNoDevice || out_params.device == paNoDevice) {
         std::cerr << "No default audio input/output device" << std::endl;
         Pa_Terminate();
         return 1;
     }
+
+    const PaDeviceInfo* in_info = Pa_GetDeviceInfo(in_params.device);
+    const PaDeviceInfo* out_info = Pa_GetDeviceInfo(out_params.device);
+    std::cout << "Using input device:  "
+              << (in_info ? in_info->name : "<unknown>")
+              << " (default index " << in_params.device << ")" << std::endl;
+    std::cout << "Using output device: "
+              << (out_info ? out_info->name : "<unknown>")
+              << " (default index " << out_params.device << ")" << std::endl;
 
     in_params.channelCount = kInputChannels;
     in_params.sampleFormat = paFloat32;
