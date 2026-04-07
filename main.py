@@ -8,7 +8,6 @@ import traceback
 from pathlib import Path
 
 from config import Config
-from audio_io import AudioIO
 from processing import NoiseReducer, Compressor, OutputLimiter, SpeechEQ
 from stt import create_streaming_stt
 from cpp_bridge import CppRealtimeBridge
@@ -584,6 +583,7 @@ if __name__ == "__main__":
             runtime_diag['bridge'] = cpp_bridge.get_diagnostics()
             print("C++ bridge mode enabled; Python audio pipeline is skipped.")
         else:
+            from audio_io import AudioIO
             runtime_diag['bridge_mode'] = False
         is_linux_arm = platform.system().lower() == 'linux' and platform.machine().lower() in ('armv7l', 'aarch64', 'arm64')
         input_channels = 1 if is_linux_arm else 2
