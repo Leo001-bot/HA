@@ -32,6 +32,38 @@ runtime_diag = {
 }
 
 
+def bridge_transcription_forwarder(cpp_bridge):
+    """Forward STT lines from the C++ bridge into the web UI transcription queue."""
+    last_forwarded = ""
+    while cpp_bridge is not None and cpp_bridge.running:
+        try:
+            line = cpp_bridge.output_queue.get(timeout=0.2)
+        except queue.Empty:
+            continue
+
+        if not line:
+            continue
+
+        if line.startswith("[STT]"):
+            transcript = line.split("[STT]", 1)[-1].strip()
+            if transcript and transcript != last_forwarded:
+                last_forwarded = transcript
+                try:
+                    transcription_queue.put_nowait(transcript)
+                except queue.Full:
+                    try:
+                        transcription_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        transcription_queue.put_nowait(transcript)
+                    except queue.Full:
+                        pass
+
+                runtime_diag['bridge']['latest_transcript'] = transcript
+                runtime_diag['bridge']['latest_status'] = line
+
+
 def process_channel(audio, config_obj, noise_reducer, compressor, eq):
     nr_applied = False
     if bool(config_obj.get('noise_reduction')):
@@ -573,6 +605,7 @@ def audio_processing_thread(config_obj, audio_io):
 if __name__ == "__main__":
     audio = None
     cpp_bridge = None
+    bridge_forwarder = None
     try:
         cfg = Config()
         use_cpp_bridge = str(os.environ.get('USE_CPP_BRIDGE', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
@@ -582,6 +615,12 @@ if __name__ == "__main__":
             runtime_diag['bridge_mode'] = True
             runtime_diag['bridge'] = cpp_bridge.get_diagnostics()
             print("C++ bridge mode enabled; Python audio pipeline is skipped.")
+            bridge_forwarder = threading.Thread(
+                target=bridge_transcription_forwarder,
+                args=(cpp_bridge,),
+                daemon=True,
+            )
+            bridge_forwarder.start()
         else:
             from audio_io import AudioIO
             runtime_diag['bridge_mode'] = False
