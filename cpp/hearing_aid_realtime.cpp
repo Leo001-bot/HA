@@ -35,16 +35,20 @@ std::atomic<bool> g_running{true};
 
 struct RuntimeConfig {
     std::atomic<bool> bypass_all{false};
-    std::atomic<float> volume{0.65f};
+    std::atomic<float> volume{1.10f};
     std::atomic<float> hp_r{0.985f};
-    std::atomic<float> compressor_threshold{0.18f};
-    std::atomic<float> compressor_ratio{3.0f};
+    std::atomic<float> compressor_threshold{0.060f};
+    std::atomic<float> compressor_ratio{8.0f};
+    std::atomic<float> compressor_makeup{2.20f};
+    std::atomic<float> agc_target_rms{0.12f};
+    std::atomic<float> agc_max_gain{10.0f};
 };
 
 struct DspState {
     float hp_prev_x = 0.0f;
     float hp_prev_y = 0.0f;
     float env = 0.0f;
+    float agc_gain = 1.0f;
 };
 
 struct CallbackContext {
@@ -214,8 +218,8 @@ float soft_clip(float x) {
 float apply_compressor(float x, DspState& st, const RuntimeConfig& cfg) {
     const float abs_x = std::fabs(x);
 
-    const float attack = 0.30f;
-    const float release = 0.02f;
+    const float attack = 0.22f;
+    const float release = 0.015f;
     if (abs_x > st.env) {
         st.env = attack * abs_x + (1.0f - attack) * st.env;
     } else {
@@ -224,15 +228,30 @@ float apply_compressor(float x, DspState& st, const RuntimeConfig& cfg) {
 
     const float threshold = clampf(cfg.compressor_threshold.load(), 0.02f, 0.95f);
     const float ratio = clampf(cfg.compressor_ratio.load(), 1.0f, 12.0f);
+    const float makeup = clampf(cfg.compressor_makeup.load(), 0.2f, 6.0f);
+    const float target_rms = clampf(cfg.agc_target_rms.load(), 0.03f, 0.25f);
+    const float max_gain = clampf(cfg.agc_max_gain.load(), 1.0f, 20.0f);
 
+    float y = x;
     if (st.env <= threshold) {
-        return x;
+        // Leave low-level signals uncompressed before makeup/AGC stage.
+        y = x;
+    } else {
+        const float over = st.env - threshold;
+        const float compressed = threshold + over / ratio;
+        const float gain = compressed / (st.env + 1e-9f);
+        y = x * gain;
     }
 
-    const float over = st.env - threshold;
-    const float compressed = threshold + over / ratio;
-    const float gain = compressed / (st.env + 1e-9f);
-    return x * gain;
+    // Restore intelligibility after compression and keep quiet speech audible.
+    y *= makeup;
+
+    // Slow AGC stage to emulate hearing-aid style loudness normalization.
+    const float desired_agc = clampf(target_rms / (st.env + 1e-6f), 0.35f, max_gain);
+    st.agc_gain = 0.16f * desired_agc + 0.84f * st.agc_gain;
+    y *= st.agc_gain;
+
+    return y;
 }
 
 float apply_highpass(float x, DspState& st, const RuntimeConfig& cfg) {
