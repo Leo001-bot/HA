@@ -49,11 +49,13 @@ chmod +x setup_pi.sh
 ./setup_pi.sh
 ```
 
+Important: run `setup_pi.sh` without `sudo`. The script uses `sudo` only for apt commands and installs Python packages in a local `.venv`.
+
 `setup_pi.sh` will:
 
 1. `git pull` the latest changes
 2. install system packages
-3. install Python packages
+3. create/use local Python virtual environment (`.venv`) and install Python packages
 4. check/download the model bundle if missing
 5. build the C++ engine
 6. start the Python server + C++ bridge
