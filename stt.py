@@ -5,6 +5,7 @@ import time
 import re
 import shutil
 import subprocess
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -178,11 +179,165 @@ class AlsaStreamingSTT:
                 pass
 
 
+class CppStreamingSTT:
+    """C++ STT backend fed by Python audio chunks over stdin."""
+
+    def __init__(self, model_root="models", sample_rate=16000, binary=None):
+        self.sample_rate = int(sample_rate)
+        self.audio_queue = queue.Queue(maxsize=1)
+        self.text_queue = queue.Queue(maxsize=64)
+        self._running = False
+        self._reader_thread = None
+        self._proc = None
+        self._last_text = ""
+        self._binary = self._resolve_binary(binary)
+        self._model_root = str(Path(model_root))
+        self._diag = {
+            "enabled": True,
+            "backend": "cpp",
+            "sample_rate": int(sample_rate),
+            "model_root": str(model_root),
+            "partial_emits": 0,
+            "final_emits": 0,
+            "errors": 0,
+            "queue_drops": 0,
+            "last_error": "",
+            "last_text": "",
+        }
+
+    def _resolve_binary(self, binary=None):
+        if binary:
+            return Path(binary)
+
+        env_bin = os.environ.get("HEARING_AID_CPP_BIN") or os.environ.get("CPP_ENGINE_BIN")
+        if env_bin:
+            return Path(env_bin)
+
+        base_dir = Path(__file__).resolve().parent / "cpp" / "build"
+        candidates = [
+            base_dir / "hearing_aid_realtime",
+            base_dir / "hearing_aid_realtime.exe",
+            Path("cpp") / "build" / "hearing_aid_realtime",
+            Path("cpp") / "build" / "hearing_aid_realtime.exe",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[0]
+
+    def start(self):
+        if self._running:
+            return
+
+        if not self._binary.exists():
+            raise FileNotFoundError(f"C++ engine not found: {self._binary}")
+
+        cmd = [str(self._binary), "--stdin-stt", self._model_root]
+        self._proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=0,
+        )
+        self._running = True
+        self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader_thread.start()
+
+    def stop(self):
+        self._running = False
+        if self._proc is not None:
+            try:
+                if self._proc.stdin is not None:
+                    try:
+                        self._proc.stdin.close()
+                    except Exception:
+                        pass
+                self._proc.terminate()
+                self._proc.wait(timeout=1.5)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+        self._proc = None
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=1.0)
+
+    def feed_audio(self, audio_data):
+        if not self._running or self._proc is None or self._proc.stdin is None:
+            return
+        audio = np.asarray(audio_data, dtype=np.float32).reshape(-1)
+        if audio.size == 0:
+            return
+        try:
+            header = struct.pack("<I", int(audio.size))
+            self._proc.stdin.write(header)
+            self._proc.stdin.write(audio.tobytes())
+            self._proc.stdin.flush()
+        except Exception as exc:
+            self._diag["errors"] += 1
+            self._diag["last_error"] = str(exc)
+            self.stop()
+
+    def get_diagnostics(self):
+        d = dict(self._diag)
+        d["running"] = bool(self._running)
+        d["audio_queue_size"] = 0
+        d["text_queue_size"] = int(self.text_queue.qsize())
+        return d
+
+    def get_transcript(self, block=False, timeout=None):
+        try:
+            return self.text_queue.get(block=block, timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def _read_loop(self):
+        if self._proc is None or self._proc.stdout is None:
+            self._running = False
+            return
+
+        text_pattern = re.compile(r"result|text|transcript", re.IGNORECASE)
+        while self._running and self._proc.poll() is None:
+            line = self._proc.stdout.readline()
+            if not line:
+                time.sleep(0.02)
+                continue
+
+            msg = line.decode(errors="ignore").strip() if isinstance(line, (bytes, bytearray)) else str(line).strip()
+            if not msg:
+                continue
+
+            lowered = msg.lower()
+            candidate = ""
+            if msg.startswith("[STT]"):
+                candidate = msg.split("[STT]", 1)[-1].strip()
+            elif text_pattern.search(lowered):
+                candidate = msg.split(":", 1)[-1].strip()
+            elif any(ch.isalpha() for ch in msg) or any('\u4e00' <= ch <= '\u9fff' for ch in msg):
+                candidate = msg
+
+            if not candidate or candidate == self._last_text:
+                continue
+
+            self._last_text = candidate
+            self._diag["partial_emits"] += 1
+            self._diag["last_text"] = candidate
+            try:
+                self.text_queue.put_nowait(candidate)
+            except queue.Full:
+                pass
+
+
 def create_streaming_stt(model_root="models", sample_rate=16000, backend="auto"):
-    """Create STT backend. backend: auto|python|alsa."""
+    """Create STT backend. backend: auto|python|alsa|cpp."""
     requested = str(backend or "auto").strip().lower()
-    if requested not in ("auto", "python", "alsa"):
+    if requested not in ("auto", "python", "alsa", "cpp"):
         requested = "auto"
+
+    if requested == "cpp":
+        return CppStreamingSTT(model_root=model_root, sample_rate=sample_rate)
 
     if requested in ("auto", "alsa"):
         bin_name = os.environ.get("SHERPA_ONNX_ALSA_BIN", "sherpa-onnx-alsa")

@@ -3,8 +3,10 @@
 #include <atomic>
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <csignal>
 #include <cstdlib>
+#include <cstdint>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
@@ -291,6 +293,18 @@ float parse_float_env(const char* name, float fallback) {
     }
 }
 
+bool parse_bool_env(const char* name) {
+    const char* value = std::getenv(name);
+    if (!value || !*value) {
+        return false;
+    }
+    std::string s = value;
+    for (char& c : s) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return s == "1" || s == "true" || s == "yes" || s == "on";
+}
+
 int audio_callback(const void* input,
                    void* output,
                    unsigned long frame_count,
@@ -405,13 +419,23 @@ void control_loop(RuntimeConfig& cfg) {
 }
 
 #ifdef HAVE_SHERPA_ONNX_C_API
-void stt_loop(CallbackContext& ctx, const std::filesystem::path& model_root) {
+bool init_stt_runtime(const std::filesystem::path& model_root,
+                      SherpaOnnxOnlineRecognizer** recognizer_out,
+                      SherpaOnnxOnlineStream** stream_out,
+                      ModelBundle* bundle_out,
+                      std::string* error_out) {
     const auto bundle_opt = find_model_bundle(model_root);
     if (!bundle_opt.has_value()) {
-        std::cerr << "STT disabled: no valid bundle found under " << model_root << std::endl;
-        return;
+        if (error_out) {
+            *error_out = "no valid bundle found under " + model_root.string();
+        }
+        return false;
     }
+
     const auto bundle = bundle_opt.value();
+    if (bundle_out) {
+        *bundle_out = bundle;
+    }
 
     SherpaOnnxOnlineRecognizerConfig config;
     std::memset(&config, 0, sizeof(config));
@@ -431,13 +455,67 @@ void stt_loop(CallbackContext& ctx, const std::filesystem::path& model_root) {
 
     auto* recognizer = SherpaOnnxCreateOnlineRecognizer(&config);
     if (!recognizer) {
-        std::cerr << "STT disabled: failed to create sherpa-onnx recognizer" << std::endl;
-        return;
+        if (error_out) {
+            *error_out = "failed to create sherpa-onnx recognizer";
+        }
+        return false;
     }
     auto* stream = SherpaOnnxCreateOnlineStream(recognizer);
     if (!stream) {
-        std::cerr << "STT disabled: failed to create online stream" << std::endl;
         SherpaOnnxDestroyOnlineRecognizer(recognizer);
+        if (error_out) {
+            *error_out = "failed to create online stream";
+        }
+        return false;
+    }
+
+    if (recognizer_out) {
+        *recognizer_out = recognizer;
+    }
+    if (stream_out) {
+        *stream_out = stream;
+    }
+    return true;
+}
+
+void process_stt_chunk(SherpaOnnxOnlineRecognizer* recognizer,
+                       SherpaOnnxOnlineStream* stream,
+                       const std::vector<float>& chunk,
+                       std::string& last_text) {
+    SherpaOnnxOnlineStreamAcceptWaveform(
+        stream,
+        static_cast<int32_t>(kSampleRate),
+        chunk.data(),
+        static_cast<int32_t>(chunk.size())
+    );
+
+    while (SherpaOnnxIsOnlineStreamReady(recognizer, stream)) {
+        SherpaOnnxDecodeOnlineStream(recognizer, stream);
+    }
+
+    auto* result = SherpaOnnxGetOnlineStreamResult(recognizer, stream);
+    if (result && result->text) {
+        std::string text = result->text;
+        if (!text.empty() && text != last_text) {
+            std::cout << "[STT] " << text << std::endl;
+            last_text = text;
+        }
+    }
+    SherpaOnnxDestroyOnlineRecognizerResult(result);
+
+    if (SherpaOnnxOnlineStreamIsEndpoint(recognizer, stream)) {
+        SherpaOnnxOnlineStreamReset(recognizer, stream);
+        last_text.clear();
+    }
+}
+
+void stt_loop(CallbackContext& ctx, const std::filesystem::path& model_root) {
+    SherpaOnnxOnlineRecognizer* recognizer = nullptr;
+    SherpaOnnxOnlineStream* stream = nullptr;
+    std::string err_text;
+    ModelBundle bundle;
+    if (!init_stt_runtime(model_root, &recognizer, &stream, &bundle, &err_text)) {
+        std::cerr << "STT disabled: " << err_text << std::endl;
         return;
     }
 
@@ -465,35 +543,55 @@ void stt_loop(CallbackContext& ctx, const std::filesystem::path& model_root) {
             ctx.stt_queue.pop();
         }
 
-        SherpaOnnxOnlineStreamAcceptWaveform(
-            stream,
-            static_cast<int32_t>(kSampleRate),
-            chunk.data(),
-            static_cast<int32_t>(chunk.size())
-        );
-
-        while (SherpaOnnxIsOnlineStreamReady(recognizer, stream)) {
-            SherpaOnnxDecodeOnlineStream(recognizer, stream);
-        }
-
-        auto* result = SherpaOnnxGetOnlineStreamResult(recognizer, stream);
-        if (result && result->text) {
-            std::string text = result->text;
-            if (!text.empty() && text != last_text) {
-                std::cout << "[STT] " << text << std::endl;
-                last_text = text;
-            }
-        }
-        SherpaOnnxDestroyOnlineRecognizerResult(result);
-
-        if (SherpaOnnxOnlineStreamIsEndpoint(recognizer, stream)) {
-            SherpaOnnxOnlineStreamReset(recognizer, stream);
-            last_text.clear();
-        }
+        process_stt_chunk(recognizer, stream, chunk, last_text);
     }
 
     SherpaOnnxDestroyOnlineStream(stream);
     SherpaOnnxDestroyOnlineRecognizer(recognizer);
+}
+
+int run_stdin_stt_mode(const std::filesystem::path& model_root) {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    SherpaOnnxOnlineRecognizer* recognizer = nullptr;
+    SherpaOnnxOnlineStream* stream = nullptr;
+    std::string err_text;
+    ModelBundle bundle;
+    if (!init_stt_runtime(model_root, &recognizer, &stream, &bundle, &err_text)) {
+        std::cerr << "STT disabled: " << err_text << std::endl;
+        return 1;
+    }
+
+    std::cout << "C++ hearing-aid STT stdin mode started" << std::endl;
+    std::cout << "  tokens:  " << bundle.tokens << std::endl;
+    std::cout << "  encoder: " << bundle.encoder << std::endl;
+    std::cout << "  decoder: " << bundle.decoder << std::endl;
+    std::cout << "  joiner:  " << bundle.joiner << std::endl;
+
+    std::string last_text;
+    while (true) {
+        std::uint32_t count = 0;
+        if (!std::cin.read(reinterpret_cast<char*>(&count), sizeof(count))) {
+            break;
+        }
+        if (count == 0) {
+            continue;
+        }
+
+        std::vector<float> chunk(count);
+        const std::streamsize bytes = static_cast<std::streamsize>(count * sizeof(float));
+        if (!std::cin.read(reinterpret_cast<char*>(chunk.data()), bytes)) {
+            break;
+        }
+
+        process_stt_chunk(recognizer, stream, chunk, last_text);
+    }
+
+    SherpaOnnxDestroyOnlineStream(stream);
+    SherpaOnnxDestroyOnlineRecognizer(recognizer);
+    std::cout << "C++ hearing-aid STT stdin mode stopped" << std::endl;
+    return 0;
 }
 #else
 void stt_loop(CallbackContext&, const std::filesystem::path&) {
@@ -510,8 +608,25 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, signal_handler);
 
     std::filesystem::path model_root = "../models";
+    bool stdin_stt_mode = parse_bool_env("HA_STT_STDIN");
     if (argc >= 2) {
-        model_root = argv[1];
+        for (int i = 1; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "--stdin-stt") {
+                stdin_stt_mode = true;
+            } else {
+                model_root = arg;
+            }
+        }
+    }
+
+    if (stdin_stt_mode) {
+#ifdef HAVE_SHERPA_ONNX_C_API
+        return run_stdin_stt_mode(model_root);
+#else
+        std::cerr << "STT stdin mode requires sherpa-onnx C API" << std::endl;
+        return 1;
+#endif
     }
 
     RuntimeConfig cfg;

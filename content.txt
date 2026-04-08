@@ -26,6 +26,7 @@ Start commands:
 - Python only: python3 -u main.py
 - Python server + C++ bridge: USE_CPP_BRIDGE=1 python3 -u main.py
 - C++ only (Linux/Pi helper): ./run_cpp_realtime_pi.sh
+- Hybrid mode (Python processing + C++ STT): STT_BACKEND=cpp python3 -u main.py
 
 Compression controls exposed in the UI:
 - Threshold (dB)
@@ -33,3 +34,7 @@ Compression controls exposed in the UI:
 - Makeup gain
 - AGC target RMS
 - AGC max gain
+
+Hybrid mode note:
+- Python keeps the sliders/audio processing.
+- C++ runs the STT engine only and receives float32 audio chunks from Python over stdin.

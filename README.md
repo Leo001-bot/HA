@@ -9,6 +9,7 @@ A hearing-aid prototype with a Python web UI/server and an optional C++ real-tim
 - Bridge mode: Python launches the compiled C++ engine and forwards STT text to the web UI
 - Compression controls: threshold, ratio, makeup gain, AGC target, AGC max gain are exposed in the UI
 - Pi launch modes: `bridge` (C++ engine) or `python` (full Python DSP modules)
+- Pi hybrid mode: Python audio processing + sliders, C++ stdin STT only (`STT_BACKEND=cpp`)
 
 ## Repository Layout
 
@@ -53,6 +54,7 @@ chmod +x setup_pi.sh
 
 Important: run `setup_pi.sh` without `sudo`. The script uses `sudo` only for apt commands and installs Python packages in a local `.venv`.
 If you want the full Python modules to affect audio on Pi, use `HA_RUN_MODE=python ./setup_pi.sh` or `./run_pi_full.sh`.
+If you want Python processing/sliders but C++ STT, use `HA_RUN_MODE=hybrid ./setup_pi.sh` or `./run_pi_hybrid.sh`.
 
 `setup_pi.sh` will:
 
@@ -91,6 +93,16 @@ If you want the sliders and processing modules to directly affect output audio, 
 cd ~/桌面/HA
 chmod +x run_pi_full.sh
 ./run_pi_full.sh
+```
+
+### Run hybrid mode on Pi
+
+Python keeps audio processing and UI sliders, while C++ handles STT only:
+
+```bash
+cd ~/桌面/HA
+chmod +x run_pi_hybrid.sh
+./run_pi_hybrid.sh
 ```
 
 ## Quick Start - Linux Virtual Machine
