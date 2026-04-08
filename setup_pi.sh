@@ -6,6 +6,7 @@ VENV_DIR="$PROJECT_DIR/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
 MODEL_DIR="$PROJECT_DIR/models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20"
 MODEL_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2"
+LAUNCH_MODE="${HA_RUN_MODE:-bridge}"
 
 if [ "${EUID}" -eq 0 ]; then
   echo "Please run without sudo: ./setup_pi.sh"
@@ -51,6 +52,10 @@ cd "$PROJECT_DIR/cpp"
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 
-echo "[6/6] Starting web UI + C++ bridge..."
+echo "[6/6] Starting application..."
 cd "$PROJECT_DIR"
+if [ "$LAUNCH_MODE" = "python" ]; then
+	exec "$VENV_PYTHON" -u main.py
+fi
+
 exec env USE_CPP_BRIDGE=1 "$VENV_PYTHON" -u main.py
