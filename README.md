@@ -81,6 +81,12 @@ cd ~/桌面/HA
 USE_CPP_BRIDGE=1 python3 -u main.py
 ```
 
+Bridge start command (copy/paste):
+
+```bash
+USE_CPP_BRIDGE=1 python3 -u main.py
+```
+
 If you only want the native C++ engine:
 
 ```bash
