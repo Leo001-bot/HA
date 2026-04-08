@@ -6,7 +6,7 @@ VENV_PYTHON="$PROJECT_DIR/.venv/bin/python"
 cd "$PROJECT_DIR"
 
 if [ -x "$VENV_PYTHON" ]; then
-  exec "$VENV_PYTHON" -u main.py
+  exec env USE_CPP_BRIDGE=0 "$VENV_PYTHON" -u main.py
 fi
 
-exec python3 -u main.py
+exec env USE_CPP_BRIDGE=0 python3 -u main.py
