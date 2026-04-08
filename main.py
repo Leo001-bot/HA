@@ -240,6 +240,9 @@ def audio_processing_thread(config_obj, audio_io):
         return
 
     stt = None
+    is_linux_arm = platform.system().lower() == 'linux' and platform.machine().lower() in ('armv7l', 'aarch64', 'arm64')
+    stt_feed_counter = 0
+    stt_feed_stride = 1
     stt_model_root_in_use = None
     last_stt_init_attempt = 0.0
     stt_init_thread = None
@@ -370,6 +373,9 @@ def audio_processing_thread(config_obj, audio_io):
                     stt = stt_obj
                     stt_model_root_in_use = target_root
                     runtime_diag['stt'] = stt.get_diagnostics()
+                    backend_name = str(runtime_diag['stt'].get('backend', '')).lower()
+                    # On Linux ARM, feeding every chunk into C++ STT can saturate CPU.
+                    stt_feed_stride = 2 if (is_linux_arm and backend_name == 'cpp') else 1
                     try:
                         transcription_queue.put_nowait(f"STT ready ({target_root})")
                     except queue.Full:
@@ -433,6 +439,7 @@ def audio_processing_thread(config_obj, audio_io):
         elif not enabled and stt is not None:
             stt.stop()
             stt = None
+            stt_feed_stride = 1
             stt_model_root_in_use = None
             runtime_diag['stt'] = {'running': False, 'enabled': False}
 
@@ -593,7 +600,9 @@ def audio_processing_thread(config_obj, audio_io):
             stt_input = prepare_stt_audio(indata)
             if stt and config_obj.get('stt_enabled'):
                 runtime_diag['stt'] = stt.get_diagnostics()
-                stt.feed_audio(stt_input)
+                stt_feed_counter += 1
+                if stt_feed_counter % max(1, int(stt_feed_stride)) == 0:
+                    stt.feed_audio(stt_input)
                 while True:
                     text = stt.get_transcript(block=False)
                     if not text:

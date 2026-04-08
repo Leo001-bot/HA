@@ -293,6 +293,18 @@ float parse_float_env(const char* name, float fallback) {
     }
 }
 
+int parse_int_env(const char* name, int fallback) {
+    const char* value = std::getenv(name);
+    if (!value || !*value) {
+        return fallback;
+    }
+    try {
+        return std::stoi(value);
+    } catch (...) {
+        return fallback;
+    }
+}
+
 bool parse_bool_env(const char* name) {
     const char* value = std::getenv(name);
     if (!value || !*value) {
@@ -443,7 +455,8 @@ bool init_stt_runtime(const std::filesystem::path& model_root,
     config.model_config.transducer.encoder = bundle.encoder.c_str();
     config.model_config.transducer.decoder = bundle.decoder.c_str();
     config.model_config.transducer.joiner = bundle.joiner.c_str();
-    config.model_config.num_threads = 2;
+    const int stt_threads = std::max(1, std::min(4, parse_int_env("HA_STT_THREADS", 1)));
+    config.model_config.num_threads = stt_threads;
     config.model_config.provider = "cpu";
     config.feat_config.sample_rate = static_cast<int32_t>(kSampleRate);
     config.feat_config.feature_dim = 80;

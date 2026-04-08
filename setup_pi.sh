@@ -55,7 +55,7 @@ cmake --build build -j"$(nproc)"
 echo "[6/6] Starting application..."
 cd "$PROJECT_DIR"
 if [ "$LAUNCH_MODE" = "hybrid" ]; then
-	exec env STT_BACKEND=cpp "$VENV_PYTHON" -u main.py
+	exec env STT_BACKEND=cpp HA_STT_THREADS=1 "$VENV_PYTHON" -u main.py
 fi
 
 if [ "$LAUNCH_MODE" = "python" ]; then
