@@ -32,9 +32,49 @@ runtime_diag = {
 }
 
 
+def bridge_compression_env(config_obj):
+    return {
+        'HA_COMP_THRESHOLD_DB': str(config_obj.get('compression_threshold_db') or -28.0),
+        'HA_COMP_RATIO': str(config_obj.get('compression_ratio') or 8.0),
+        'HA_COMP_MAKEUP': str(config_obj.get('compression_makeup') or 2.2),
+        'HA_AGC_TARGET_RMS': str(config_obj.get('agc_target_rms') or 0.12),
+        'HA_AGC_MAX_GAIN': str(config_obj.get('agc_max_gain') or 10.0),
+    }
+
+
+def bridge_config_signature(config_obj):
+    keys = (
+        'compression_threshold_db',
+        'compression_ratio',
+        'compression_makeup',
+        'agc_target_rms',
+        'agc_max_gain',
+    )
+    return tuple(config_obj.get(key) for key in keys)
+
+
+def apply_compression_stage(audio, config_obj, compressor_state):
+    threshold_db = float(config_obj.get('compression_threshold_db') or -28.0)
+    ratio = float(config_obj.get('compression_ratio') or 8.0)
+    makeup_gain = float(config_obj.get('compression_makeup') or 2.2)
+    agc_target_rms = float(config_obj.get('agc_target_rms') or 0.12)
+    agc_max_gain = float(config_obj.get('agc_max_gain') or 10.0)
+
+    return compressor_state.process(
+        audio,
+        threshold_db=threshold_db,
+        ratio=ratio,
+        makeup_gain=makeup_gain,
+        agc_target_rms=agc_target_rms,
+        agc_max_gain=agc_max_gain,
+    )
+
+
 def bridge_transcription_forwarder(cpp_bridge, config_obj=None):
     """Forward C++ bridge telemetry and STT lines into existing web UI queues."""
     last_forwarded = ""
+    last_signature = bridge_config_signature(config_obj) if config_obj is not None else None
+    last_restart_time = 0.0
 
     def parse_kv(line, prefix):
         payload = {}
@@ -68,6 +108,18 @@ def bridge_transcription_forwarder(cpp_bridge, config_obj=None):
 
         if not line:
             continue
+
+        if config_obj is not None:
+            current_signature = bridge_config_signature(config_obj)
+            if current_signature != last_signature and (time.monotonic() - last_restart_time) > 1.0:
+                last_signature = current_signature
+                last_restart_time = time.monotonic()
+                try:
+                    cpp_bridge.restart(env_overrides=bridge_compression_env(config_obj))
+                    runtime_diag['bridge']['latest_status'] = 'bridge restarted for compression change'
+                except Exception as restart_err:
+                    runtime_diag['bridge']['latest_status'] = f'bridge restart failed: {restart_err}'
+                continue
 
         if line.startswith("[METER]"):
             kv = parse_kv(line, "[METER]")
@@ -163,12 +215,7 @@ def process_channel(audio, config_obj, noise_reducer, compressor, eq):
             treble_db=float(config_obj.get('eq_treble_db') or 0.0),
         )
 
-    strength = float(config_obj.get('compression_strength') or 1.0)
-    compressed = compressor.process(audio)
-    if strength <= 1.0:
-        audio = (1.0 - strength) * audio + strength * compressed
-    else:
-        audio = compressed + (strength - 1.0) * (compressed - audio)
+    audio = apply_compression_stage(audio, config_obj, compressor)
     return audio, nr_applied
 
 
@@ -686,7 +733,7 @@ if __name__ == "__main__":
         use_cpp_bridge = str(os.environ.get('USE_CPP_BRIDGE', '0')).strip().lower() in ('1', 'true', 'yes', 'on')
         if use_cpp_bridge:
             cpp_bridge = CppRealtimeBridge()
-            cpp_bridge.start()
+            cpp_bridge.start(env_overrides=bridge_compression_env(cfg))
             runtime_diag['bridge_mode'] = True
             runtime_diag['bridge'] = cpp_bridge.get_diagnostics()
             print("C++ bridge mode enabled; Python audio pipeline is skipped.")

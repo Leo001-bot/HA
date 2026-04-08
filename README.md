@@ -7,6 +7,7 @@ A hearing-aid prototype with a Python web UI/server and an optional C++ real-tim
 - Python: Flask web server, Socket.IO UI, configuration, and bridge controller
 - C++: real-time audio processing and optional sherpa-onnx C API STT
 - Bridge mode: Python launches the compiled C++ engine and forwards STT text to the web UI
+- Compression controls: threshold, ratio, makeup gain, AGC target, AGC max gain are exposed in the UI
 
 ## Repository Layout
 
@@ -132,6 +133,7 @@ It must contain at least:
 - The web UI and server are still Python.
 - In bridge mode, the compiled C++ engine handles real-time audio processing and STT.
 - The Python bridge forwards C++ STT transcripts into the existing UI chatbox.
+- When compression settings change in the UI, the C++ bridge restarts so the new profile takes effect.
 - On Raspberry Pi, the project uses conservative audio defaults for stability.
 
 ## License

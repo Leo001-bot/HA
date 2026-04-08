@@ -279,6 +279,18 @@ std::optional<PaDeviceIndex> parse_device_index_env(const char* name) {
     }
 }
 
+float parse_float_env(const char* name, float fallback) {
+    const char* value = std::getenv(name);
+    if (!value || !*value) {
+        return fallback;
+    }
+    try {
+        return std::stof(value);
+    } catch (...) {
+        return fallback;
+    }
+}
+
 int audio_callback(const void* input,
                    void* output,
                    unsigned long frame_count,
@@ -503,6 +515,11 @@ int main(int argc, char** argv) {
     }
 
     RuntimeConfig cfg;
+    cfg.compressor_threshold.store(parse_float_env("HA_COMP_THRESHOLD_DB", cfg.compressor_threshold.load()));
+    cfg.compressor_ratio.store(parse_float_env("HA_COMP_RATIO", cfg.compressor_ratio.load()));
+    cfg.compressor_makeup.store(parse_float_env("HA_COMP_MAKEUP", cfg.compressor_makeup.load()));
+    cfg.agc_target_rms.store(parse_float_env("HA_AGC_TARGET_RMS", cfg.agc_target_rms.load()));
+    cfg.agc_max_gain.store(parse_float_env("HA_AGC_MAX_GAIN", cfg.agc_max_gain.load()));
     CallbackContext ctx;
     ctx.cfg = &cfg;
 

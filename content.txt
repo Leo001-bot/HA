@@ -26,3 +26,10 @@ Start commands:
 - Python only: python3 -u main.py
 - Python server + C++ bridge: USE_CPP_BRIDGE=1 python3 -u main.py
 - C++ only (Linux/Pi helper): ./run_cpp_realtime_pi.sh
+
+Compression controls exposed in the UI:
+- Threshold (dB)
+- Ratio
+- Makeup gain
+- AGC target RMS
+- AGC max gain

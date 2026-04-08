@@ -268,9 +268,29 @@
             <span class="hint">Faster noise attack, slower speech release</span>
         </div>
         <div class="row">
-            <label for="comp">Compression Strength</label>
-            <input type="range" id="comp" min="0" max="2" step="0.1" value="1.0">
-            <span id="comp-val">1.0</span>
+            <label for="comp-threshold">Comp Threshold (dB)</label>
+            <input type="range" id="comp-threshold" min="-60" max="0" step="1" value="-28">
+            <span id="comp-threshold-val">-28</span>
+        </div>
+        <div class="row">
+            <label for="comp-ratio">Comp Ratio</label>
+            <input type="range" id="comp-ratio" min="1" max="20" step="0.5" value="8.0">
+            <span id="comp-ratio-val">8.0:1</span>
+        </div>
+        <div class="row">
+            <label for="comp-makeup">Makeup Gain</label>
+            <input type="range" id="comp-makeup" min="0.2" max="6" step="0.1" value="2.2">
+            <span id="comp-makeup-val">2.2x</span>
+        </div>
+        <div class="row">
+            <label for="comp-target">AGC Target RMS</label>
+            <input type="range" id="comp-target" min="0.02" max="0.30" step="0.01" value="0.12">
+            <span id="comp-target-val">0.12</span>
+        </div>
+        <div class="row">
+            <label for="comp-maxgain">AGC Max Gain</label>
+            <input type="range" id="comp-maxgain" min="1" max="20" step="0.5" value="10.0">
+            <span id="comp-maxgain-val">10.0x</span>
         </div>
         <div class="row">
             <label for="eq-enabled">Speech EQ</label>
@@ -382,8 +402,16 @@
         nrBandHighVal: document.getElementById("nr-band-high-val"),
         nrCeps: document.getElementById("nr-ceps"),
         nrAr: document.getElementById("nr-ar"),
-        comp: document.getElementById("comp"),
-        compVal: document.getElementById("comp-val"),
+        compThreshold: document.getElementById("comp-threshold"),
+        compThresholdVal: document.getElementById("comp-threshold-val"),
+        compRatio: document.getElementById("comp-ratio"),
+        compRatioVal: document.getElementById("comp-ratio-val"),
+        compMakeup: document.getElementById("comp-makeup"),
+        compMakeupVal: document.getElementById("comp-makeup-val"),
+        compTarget: document.getElementById("comp-target"),
+        compTargetVal: document.getElementById("comp-target-val"),
+        compMaxGain: document.getElementById("comp-maxgain"),
+        compMaxGainVal: document.getElementById("comp-maxgain-val"),
         sttGain: document.getElementById("stt-gain"),
         sttGainVal: document.getElementById("stt-gain-val"),
         sttToggle: document.getElementById("stt-toggle"),
@@ -583,7 +611,11 @@
             nr_band_high_hz: Number(el.nrBandHigh.value),
             nr_cepstral_smoothing: el.nrCeps.checked,
             nr_attack_release_split: el.nrAr.checked,
-            compression_strength: Number(el.comp.value),
+            compression_threshold_db: Number(el.compThreshold.value),
+            compression_ratio: Number(el.compRatio.value),
+            compression_makeup: Number(el.compMakeup.value),
+            agc_target_rms: Number(el.compTarget.value),
+            agc_max_gain: Number(el.compMaxGain.value),
             eq_enabled: el.eqEnabled.checked,
             eq_bass_db: Number(el.eqBass.value),
             eq_presence_db: Number(el.eqPresence.value),
@@ -694,9 +726,25 @@
         }
         if (typeof cfg.nr_cepstral_smoothing === "boolean") el.nrCeps.checked = cfg.nr_cepstral_smoothing;
         if (typeof cfg.nr_attack_release_split === "boolean") el.nrAr.checked = cfg.nr_attack_release_split;
-        if (typeof cfg.compression_strength === "number") {
-            el.comp.value = cfg.compression_strength;
-            el.compVal.textContent = cfg.compression_strength.toFixed(1);
+        if (typeof cfg.compression_threshold_db === "number") {
+            el.compThreshold.value = cfg.compression_threshold_db;
+            el.compThresholdVal.textContent = Number(cfg.compression_threshold_db).toFixed(0);
+        }
+        if (typeof cfg.compression_ratio === "number") {
+            el.compRatio.value = cfg.compression_ratio;
+            el.compRatioVal.textContent = Number(cfg.compression_ratio).toFixed(1) + ":1";
+        }
+        if (typeof cfg.compression_makeup === "number") {
+            el.compMakeup.value = cfg.compression_makeup;
+            el.compMakeupVal.textContent = Number(cfg.compression_makeup).toFixed(1) + "x";
+        }
+        if (typeof cfg.agc_target_rms === "number") {
+            el.compTarget.value = cfg.agc_target_rms;
+            el.compTargetVal.textContent = Number(cfg.agc_target_rms).toFixed(2);
+        }
+        if (typeof cfg.agc_max_gain === "number") {
+            el.compMaxGain.value = cfg.agc_max_gain;
+            el.compMaxGainVal.textContent = Number(cfg.agc_max_gain).toFixed(1) + "x";
         }
         if (typeof cfg.stt_input_gain === "number") {
             el.sttGain.value = cfg.stt_input_gain;
@@ -846,8 +894,24 @@
     });
     el.nrCeps.addEventListener("change", sendConfigDebounced);
     el.nrAr.addEventListener("change", sendConfigDebounced);
-    el.comp.addEventListener("input", () => {
-        el.compVal.textContent = Number(el.comp.value).toFixed(1);
+        el.compThreshold.addEventListener("input", () => {
+        el.compThresholdVal.textContent = Number(el.compThreshold.value).toFixed(0);
+        sendConfigDebounced();
+    });
+    el.compRatio.addEventListener("input", () => {
+        el.compRatioVal.textContent = Number(el.compRatio.value).toFixed(1) + ":1";
+        sendConfigDebounced();
+    });
+    el.compMakeup.addEventListener("input", () => {
+        el.compMakeupVal.textContent = Number(el.compMakeup.value).toFixed(1) + "x";
+        sendConfigDebounced();
+    });
+    el.compTarget.addEventListener("input", () => {
+        el.compTargetVal.textContent = Number(el.compTarget.value).toFixed(2);
+        sendConfigDebounced();
+    });
+    el.compMaxGain.addEventListener("input", () => {
+        el.compMaxGainVal.textContent = Number(el.compMaxGain.value).toFixed(1) + "x";
         sendConfigDebounced();
     });
     el.sttGain.addEventListener("input", () => {
@@ -949,7 +1013,11 @@
             nr_band_high_hz: 6000,
             nr_cepstral_smoothing: true,
             nr_attack_release_split: true,
-            compression_strength: 1.0,
+            compression_threshold_db: -28,
+            compression_ratio: 8.0,
+            compression_makeup: 2.2,
+            agc_target_rms: 0.12,
+            agc_max_gain: 10.0,
             eq_enabled: true,
             eq_bass_db: -2.0,
             eq_presence_db: 3.0,

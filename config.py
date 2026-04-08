@@ -17,6 +17,11 @@ class Config:
             'nr_cepstral_smoothing': True,
             'nr_attack_release_split': True,
             'compression_strength': 1.0,
+            'compression_threshold_db': -28.0,
+            'compression_ratio': 8.0,
+            'compression_makeup': 2.2,
+            'agc_target_rms': 0.12,
+            'agc_max_gain': 10.0,
             'eq_enabled': True,
             'eq_bass_db': -3.0,
             'eq_presence_db': 2.5,
@@ -72,6 +77,36 @@ class Config:
                 except (TypeError, ValueError):
                     value = self._active.get('stt_input_gain', 1.0)
                 value = max(0.5, min(8.0, value))
+            if key == 'compression_threshold_db':
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = self._active.get('compression_threshold_db', -28.0)
+                value = max(-60.0, min(0.0, value))
+            if key == 'compression_ratio':
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = self._active.get('compression_ratio', 8.0)
+                value = max(1.0, min(20.0, value))
+            if key == 'compression_makeup':
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = self._active.get('compression_makeup', 2.2)
+                value = max(0.2, min(6.0, value))
+            if key == 'agc_target_rms':
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = self._active.get('agc_target_rms', 0.12)
+                value = max(0.02, min(0.30, value))
+            if key == 'agc_max_gain':
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = self._active.get('agc_max_gain', 10.0)
+                value = max(1.0, min(20.0, value))
             if key in ('eq_bass_db', 'eq_presence_db', 'eq_treble_db'):
                 try:
                     value = float(value)

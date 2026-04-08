@@ -20,6 +20,7 @@ class CppRealtimeBridge:
         self.latest_transcript = ""
         self.latest_status = "idle"
         self.output_queue = queue.Queue(maxsize=32)
+        self._env_overrides = {}
 
     def _resolve_executable(self, executable=None):
         if executable:
@@ -42,12 +43,16 @@ class CppRealtimeBridge:
 
         return candidates[0]
 
-    def start(self):
+    def start(self, env_overrides=None):
         if self.running:
             return
 
         if not self.executable.exists():
             raise FileNotFoundError(f"C++ engine not found: {self.executable}")
+
+        self._env_overrides = dict(env_overrides or {})
+        env = os.environ.copy()
+        env.update({key: str(value) for key, value in self._env_overrides.items() if value is not None})
 
         cmd = [str(self.executable), str(self.model_root)]
         self.process = subprocess.Popen(
@@ -57,10 +62,15 @@ class CppRealtimeBridge:
             text=True,
             bufsize=1,
             universal_newlines=True,
+            env=env,
         )
         self.running = True
         self.reader_thread = threading.Thread(target=self._read_loop, daemon=True)
         self.reader_thread.start()
+
+    def restart(self, env_overrides=None):
+        self.stop()
+        self.start(env_overrides=env_overrides if env_overrides is not None else self._env_overrides)
 
     def stop(self):
         self.running = False

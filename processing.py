@@ -129,6 +129,8 @@ class Compressor:
         self.bands = np.array([250, 500, 1000, 2000, 4000, 8000])
         self.thresholds = np.array([30, 30, 30, 30, 30, 30])
         self.ratios = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        self.env = 0.0
+        self.agc_gain = 1.0
 
     def set_audiogram(self, frequencies, thresholds_db):
         for i, band in enumerate(self.bands):
@@ -144,7 +146,15 @@ class Compressor:
                 self.ratios[i] = 1.0
                 self.thresholds[i] = 30
 
-    def process(self, audio):
+    def process(
+        self,
+        audio,
+        threshold_db=None,
+        ratio=None,
+        makeup_gain=1.0,
+        agc_target_rms=0.12,
+        agc_max_gain=10.0,
+    ):
         fft = np.fft.rfft(audio)
         freqs = np.fft.rfftfreq(len(audio), d=1 / self.sample_rate)
 
@@ -161,7 +171,42 @@ class Compressor:
 
         gain_curve = np.interp(freqs, self.bands, gain_per_band, left=1, right=1)
         fft_compressed = fft * gain_curve
-        return np.fft.irfft(fft_compressed, n=len(audio))
+        out = np.fft.irfft(fft_compressed, n=len(audio)).astype(np.float32, copy=False)
+
+        # Optional broadband hearing-aid style compression / AGC stage.
+        if threshold_db is not None and ratio is not None:
+            threshold_db = float(np.clip(threshold_db, -60.0, 0.0))
+            ratio = float(np.clip(ratio, 1.0, 20.0))
+            makeup_gain = float(np.clip(makeup_gain, 0.2, 6.0))
+            agc_target_rms = float(np.clip(agc_target_rms, 0.02, 0.30))
+            agc_max_gain = float(np.clip(agc_max_gain, 1.0, 20.0))
+
+            rms = float(np.sqrt(np.mean(out * out) + 1e-12))
+            attack = 0.22
+            release = 0.015
+            if rms > self.env:
+                self.env = attack * rms + (1.0 - attack) * self.env
+            else:
+                self.env = release * rms + (1.0 - release) * self.env
+
+            env_db = 20.0 * np.log10(self.env + 1e-9)
+            gain = 1.0
+            if env_db > threshold_db:
+                over_db = env_db - threshold_db
+                compressed_over_db = over_db / ratio
+                desired_db = threshold_db + compressed_over_db
+                gain_db = desired_db - env_db
+                gain *= 10.0 ** (gain_db / 20.0)
+
+            gain *= makeup_gain
+
+            desired_agc = float(np.clip(agc_target_rms / (self.env + 1e-9), 0.35, agc_max_gain))
+            self.agc_gain = 0.16 * desired_agc + 0.84 * self.agc_gain
+            gain *= self.agc_gain
+
+            out = out * gain
+
+        return out.astype(np.float32, copy=False)
 
 
 class SpeechEQ:
